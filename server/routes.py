@@ -1,4 +1,3 @@
-# server/routes.py
 from fastapi import APIRouter, HTTPException
 from shared.models import RegisterRequest, SendRequest, MessageResponse
 from server.database import USERS, MESSAGES

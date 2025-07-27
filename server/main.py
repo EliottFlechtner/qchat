@@ -1,4 +1,3 @@
-# server/main.py
 from fastapi import FastAPI
 from server.routes import router, register_user
 from shared.models import RegisterRequest

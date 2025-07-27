@@ -1,4 +1,3 @@
-# client/inbox_reader.py
 import requests, base64, oqs
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from client_helpers import *
