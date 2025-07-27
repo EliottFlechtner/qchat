@@ -65,15 +65,3 @@ def fetch_and_decrypt_inbox(username: str):
                 print("❌ Failed to decrypt message:", e)
 
     print("[+] Inbox processed successfully")
-
-
-# # Example run:
-# if __name__ == "__main__":
-#     usernames = ["alice", "bob"]
-#     for username in usernames:
-#         if username not in USER_KEYS:
-#             print(f"[!] User {username} not registered locally. Registering now...")
-#             register_local_user(username)  # Will skip if already registered
-#         else:
-#             print(f"[+] User {username} already registered. Fetching inbox...")
-#             fetch_and_decrypt_inbox(username)

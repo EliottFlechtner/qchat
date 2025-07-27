@@ -35,10 +35,3 @@ def send_encrypted_message(sender: str, recipient: str, message: str):
 
     res = requests.post(f"{API_URL}/send", json=payload)
     print(res.json())
-
-
-# # Example usage
-# if __name__ == "__main__":
-#     send_encrypted_message(
-#         sender="alice", recipient="bob", message="Hello from Alice to Bob!"
-#     )
