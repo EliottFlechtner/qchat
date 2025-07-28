@@ -1,9 +1,12 @@
 from fastapi import APIRouter, HTTPException
 from shared.models import RegisterRequest, SendRequest, MessageResponse
 from server.database import USERS, MESSAGES
-import base64
+from fastapi import WebSocket
 
 router = APIRouter()
+
+# Track connected clients
+connected_clients: dict[str, WebSocket] = {}
 
 
 @router.post("/register")
@@ -16,7 +19,7 @@ def register_user(req: RegisterRequest):
 
 
 @router.post("/send")
-def send_message(req: SendRequest):
+async def send_message(req: SendRequest):
     if req.recipient not in USERS:
         raise HTTPException(status_code=404, detail="Recipient not found")
     MESSAGES[req.recipient].append(
@@ -27,6 +30,15 @@ def send_message(req: SendRequest):
             "encapsulated_key": req.encapsulated_key,
         }
     )
+
+    # Notify via WebSocket if connected
+    ws = connected_clients.get(req.recipient)
+    if ws:
+        try:
+            await ws.send_text("new_message")
+        except Exception as e:
+            print(f"[WebSocket] Failed to notify {req.recipient}: {e}")
+
     return {"status": "message stored"}
 
 
