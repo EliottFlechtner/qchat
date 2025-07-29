@@ -21,7 +21,7 @@ def register_local_user(username: str):
         res = requests.post(
             f"{API_URL}/register", json={"username": username, "public_key": b64_pub}
         )
-        print(f"[+] Registered {username}: {res.json()}")
+        # print(f"[+] Registered {username}: {res.json()}")
 
     save_user_keys(USER_KEYS)
 
@@ -33,8 +33,8 @@ def fetch_and_decrypt_inbox(username: str):
         return
 
     res = requests.get(f"{API_URL}/inbox/{username}")
-    print(f"[+] Fetching inbox for {username}...")
-    print(f"Response: {res.status_code} {res.reason}")
+    # print(f"[+] Fetching inbox for {username}...")
+    # print(f"Response: {res.status_code} {res.reason}")
 
     if res.status_code != 200:
         print("Inbox error:", res.text)
@@ -55,13 +55,13 @@ def fetch_and_decrypt_inbox(username: str):
                 shared_secret = kem.decap_secret(encapsulated_key)
                 aesgcm = AESGCM(shared_secret[:16])  # AES-128
 
-                print(f"Shared secret (hex): {shared_secret.hex()}")
-                print(f"Nonce (hex): {nonce.hex()}")
-                print(f"Ciphertext (hex): {ciphertext.hex()}")
+                # print(f"Shared secret (hex): {shared_secret.hex()}")
+                # print(f"Nonce (hex): {nonce.hex()}")
+                # print(f"Ciphertext (hex): {ciphertext.hex()}")
 
                 plaintext = aesgcm.decrypt(nonce, ciphertext, None)
                 print(f"[{msg['sender']}] ➤ {plaintext.decode()}")
             except Exception as e:
                 print("❌ Failed to decrypt message:", e)
 
-    print("[+] Inbox processed successfully")
+    # print("[+] Inbox processed successfully")

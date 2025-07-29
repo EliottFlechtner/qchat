@@ -21,9 +21,9 @@ def send_encrypted_message(sender: str, recipient: str, message: str):
     nonce = os.urandom(12)
     ciphertext = aesgcm.encrypt(nonce, message.encode(), None)
 
-    print(f"Shared secret (hex): {shared_secret.hex()}")
-    print(f"Nonce (hex): {nonce.hex()}")
-    print(f"Ciphertext (hex): {ciphertext.hex()}")
+    # print(f"Shared secret (hex): {shared_secret.hex()}")
+    # print(f"Nonce (hex): {nonce.hex()}")
+    # print(f"Ciphertext (hex): {ciphertext.hex()}")
 
     payload = {
         "sender": sender,
@@ -34,4 +34,4 @@ def send_encrypted_message(sender: str, recipient: str, message: str):
     }
 
     res = requests.post(f"{API_URL}/send", json=payload)
-    print(res.json())
+    # print(res.json())
