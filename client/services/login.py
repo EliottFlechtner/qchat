@@ -1,8 +1,7 @@
-import os
-import json
+import os, json
 from oqs import KeyEncapsulation
-from utils import b64e, b64d
-from api import register_user
+from client.crypto.utils import b64e, b64d
+from client.api.api import register_user
 
 USER_KEYS_FILE = "user_keys.json"
 

@@ -1,8 +1,7 @@
-import oqs
-from api import fetch_inbox
-from crypto import decapsulate_key, decrypt_message
-from login import get_local_keypair
-from utils import b64d
+from client.api.api import fetch_inbox
+from client.crypto.crypto import decapsulate_key, decrypt_message
+from client.services.login import get_local_keypair
+from client.crypto.utils import b64d
 
 
 def fetch_and_decrypt_inbox(username):

@@ -1,8 +1,8 @@
 import sys
 
-from login import login_or_register
-from send import send_encrypted_message
-from websocket import start_websocket_thread
+from client.services.login import login_or_register
+from client.services.send import send_encrypted_message
+from client.network.websocket import start_websocket_thread
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

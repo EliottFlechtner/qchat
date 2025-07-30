@@ -1,5 +1,5 @@
 import requests
-from utils import b64e, b64d, API_URL
+from client.crypto.utils import b64e, b64d, API_URL
 
 
 def register_user(username, public_key_bytes):

@@ -1,6 +1,5 @@
-from api import get_public_key, send_message
-from crypto import encapsulate_key, encrypt_message
-from utils import b64e
+from client.api.api import get_public_key, send_message
+from client.crypto.crypto import encapsulate_key, encrypt_message
 
 
 def send_encrypted_message(sender, recipient, message):
