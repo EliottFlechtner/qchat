@@ -1,28 +1,73 @@
-import requests
+import requests, sys
 from client.crypto.utils import b64e, b64d, API_URL
 
 
-def register_user(username, public_key_bytes):
+def register_user(username, kem_pk: bytes, sig_pk: bytes) -> dict:
+    if not username or not kem_pk or not sig_pk:
+        raise ValueError("Username and public keys cannot be empty")
+
+    print(f"[CLIENT] Registering user: {username}", file=sys.stderr)
+
+    # Register a new user with their public keys
     req = requests.post(
         f"{API_URL}/register",
         json={
             "username": username,
-            "public_key": b64e(public_key_bytes),
+            "kem_pk": b64e(kem_pk),
+            "sig_pk": b64e(sig_pk),
         },
     )
+
+    # Check if the registration was successful
     if req.status_code != 200:
-        raise Exception("Failed to register user")
-    return req.json()
+        raise Exception(
+            f"Failed to register user: {req.json().get('detail', 'Unknown error')}"
+        )
+    return req.json()  # {"status": "registered"}
 
 
-def get_public_key(username: str):
+def get_public_key(username: str, field: str = "kem_pk") -> bytes:
+    if field not in ["kem_pk", "sig_pk"]:
+        raise ValueError("Invalid field, must be 'kem_pk' or 'sig_pk'")
+    if not username:
+        raise ValueError("Username cannot be empty")
+
+    print(f"[CLIENT] Fetching public key for user: {username}", file=sys.stderr)
+
+    # Fetch the user's public key from the server
     res = requests.get(f"{API_URL}/pubkey/{username}")
+
+    # Check if the server correctly returned the public key
     if res.status_code != 200:
-        raise Exception("User not found")
-    return b64d(res.json()["public_key"])
+        raise Exception(
+            f"Failed to fetch public key: {res.json().get('detail', 'Unknown error')}"
+        )
+    return b64d(res.json()[field])  # Return requested pk (decoded from base64)
 
 
-def send_message(sender, recipient, ciphertext, nonce, encap_key):
+def send_message(
+    sender: str,
+    recipient: str,
+    ciphertext: bytes,
+    nonce: bytes,
+    encap_key: bytes,
+    signature: bytes,
+) -> dict:
+    if not sender or not recipient:
+        raise ValueError("Sender and recipient cannot be empty")
+    if not ciphertext or not nonce or not encap_key or not signature:
+        raise ValueError("Message components cannot be empty")
+    if (
+        not isinstance(ciphertext, bytes)
+        or not isinstance(nonce, bytes)
+        or not isinstance(encap_key, bytes)
+        or not isinstance(signature, bytes)
+    ):
+        raise ValueError("Message components must be bytes")
+
+    print(f"[CLIENT] Sending message from {sender} to {recipient}", file=sys.stderr)
+
+    # Send a message to the recipient
     req = requests.post(
         f"{API_URL}/send",
         json={
@@ -31,15 +76,47 @@ def send_message(sender, recipient, ciphertext, nonce, encap_key):
             "ciphertext": b64e(ciphertext),
             "nonce": b64e(nonce),
             "encapsulated_key": b64e(encap_key),
+            "signature": b64e(signature),
         },
     )
+
+    # write to file the b64e of all fields
+    # filename = f"sent_to_{recipient}.txt"
+    # with open(filename, "a") as f:
+    #     f.write(
+    #         f"Sender: {sender}\n"
+    #         f"Ciphertext: {b64e(ciphertext)}\n"
+    #         f"Nonce: {b64e(nonce)}\n"
+    #         f"Encapsulated Key: {b64e(encap_key)}\n"
+    #         f"Signature: {b64e(signature)}\n\n"
+    #     )
+
+    # Check if the message was sent successfully
     if req.status_code != 200:
-        raise Exception("Failed to send message")
-    return req.json()
+        raise Exception(
+            f"Failed to send message: {req.json().get('detail', 'Unknown error')}"
+        )
+    return req.json()  # {"status": "message stored"}
 
 
-def fetch_inbox(username: str):
+def get_inbox(username: str) -> list[dict]:
+    if not username:
+        raise ValueError("Username cannot be empty")
+
+    print(f"[CLIENT] Fetching inbox for user: {username}", file=sys.stderr)
+
+    # Fetch the user's inbox messages
     res = requests.get(f"{API_URL}/inbox/{username}")
+
     if res.status_code != 200:
+        print(
+            f"[CLIENT] Failed to fetch inbox: {res.json().get('detail', 'Unknown error')}",
+            file=sys.stderr,
+        )
         return []
-    return res.json()
+
+    # Return the inbox messages as a list of dictionaries
+    if not res.json():
+        print("[CLIENT] Inbox is empty", file=sys.stderr)
+        return []
+    return res.json()  # List of messages as dicts, not empty, not decrypted
