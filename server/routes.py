@@ -1,3 +1,4 @@
+import sys
 from fastapi import APIRouter, HTTPException
 from shared.models import RegisterRequest, SendRequest, MessageResponse
 from server.database import USERS, MESSAGES
@@ -13,21 +14,54 @@ connected_clients: dict[str, WebSocket] = {}
 def register_user(req: RegisterRequest):
     if req.username in USERS:
         raise HTTPException(status_code=400, detail="Username already exists")
-    USERS[req.username] = req.public_key
+    if not req.kem_pk or not req.sig_pk:
+        raise HTTPException(status_code=400, detail="Public keys cannot be empty")
+    if not req.username:
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+
+    print("[SERVER] Registering user:", req.username, file=sys.stderr)
+
+    # Store the user's public keys & init inbox
+    USERS[req.username] = (req.kem_pk, req.sig_pk)
     MESSAGES[req.username] = []
+
+    print(f"[SERVER] User '{req.username}' registered successfully.", file=sys.stderr)
+
+    # Notify via WebSocket if connected
     return {"status": "registered"}
+
+
+# TODO response model for public key
+@router.get("/pubkey/{username}")
+def get_public_key(username: str):
+    if username not in USERS:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not USERS[username][0] or not USERS[username][1]:
+        raise HTTPException(status_code=404, detail="Public keys not found")
+
+    print(f"[SERVER] Fetching public key for user: {username}", file=sys.stderr)
+
+    # Return the user's public key and signature public key
+    return {
+        "username": username,
+        "kem_pk": USERS[username][0],
+        "sig_pk": USERS[username][1],
+    }
 
 
 @router.post("/send")
 async def send_message(req: SendRequest):
     if req.recipient not in USERS:
         raise HTTPException(status_code=404, detail="Recipient not found")
+
+    # Store the message in the recipient's inbox
     MESSAGES[req.recipient].append(
         {
             "sender": req.sender,
             "ciphertext": req.ciphertext,
             "nonce": req.nonce,
             "encapsulated_key": req.encapsulated_key,
+            "signature": req.signature,
         }
     )
 
@@ -46,13 +80,10 @@ async def send_message(req: SendRequest):
 def get_inbox(username: str):
     if username not in MESSAGES:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Fetch the user's inbox messages & return them
     inbox = MESSAGES[username]
-    MESSAGES[username] = []  # Empty inbox after retrieval
+
+    # Clear inbox after retrieval TODO fix later
+    MESSAGES[username] = []
     return inbox
-
-
-@router.get("/pubkey/{username}")
-def get_public_key(username: str):
-    if username not in USERS:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"username": username, "public_key": USERS[username]}
