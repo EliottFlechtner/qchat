@@ -27,15 +27,17 @@ if __name__ == "__main__":
     # Start the WebSocket listener in a separate thread
     start_websocket_thread(username)
 
-    print(f"[Chat Started] You are '{username}', chatting with '{recipient}'")
-    print("Type your message and press Enter. Type EXIT() to quit.")
+    print(
+        f"[CLIENT] You are now connected as '{username}'. You can start sending messages to '{recipient}'.",
+        file=sys.stderr,
+    )
+    print("Type your messages below (Ctrl+C to exit):")
+    print("--------------------------------------------------")
 
     try:
+        # Main loop to read user input and send messages
         while True:
             msg = input("> ").strip()
-            if msg == "EXIT()":
-                print("Exiting chat...")
-                break
             if msg:
                 send_encrypted_message(username, recipient, msg)
     except KeyboardInterrupt:
