@@ -1,7 +1,7 @@
 import os, json
 
 from client.utils.helpers import b64e, b64d
-from client.api.api import register_user
+from client.api import register_user
 from client.crypto.kem import generate_kem_keypair
 from client.crypto.signature import generate_signature_keypair
 
