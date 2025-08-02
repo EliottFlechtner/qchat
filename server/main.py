@@ -3,8 +3,7 @@ from contextlib import asynccontextmanager
 import asyncio
 
 from server.db.database import engine, Base
-
-# from server.db.database_models import User, Message
+from server.db.database_models import User, Message  # Safety import for Base
 from server.routes import router, connected_clients
 from server.utils.logger import logger
 

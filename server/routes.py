@@ -1,4 +1,3 @@
-import sys
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
 
