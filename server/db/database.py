@@ -1,10 +1,11 @@
 import os, sys
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.exc import OperationalError
 
 from server.utils.logger import logger
+
 
 # Load environment variables for database configuration from .env file
 load_dotenv()
@@ -42,9 +43,11 @@ logger.info("[DATABASE] Database connection established successfully.")
 # Create the SQLAlchemy engine and session
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
+
 # Base class for declarative models, shared across the application to ensure consistency
 # see server/db/database_models.py for model definitions inheriting from this Base
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 
 # Dependency to get the database session
