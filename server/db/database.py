@@ -1,13 +1,12 @@
-import os
-import sys
-import time
+import os, sys
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.exc import OperationalError
 from dotenv import load_dotenv
 
+from server.utils.logger import logger
 
-# Load environment variables from .env file
+# Load environment variables for database configuration from .env file
 load_dotenv()
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
@@ -15,14 +14,36 @@ DB_HOST = os.getenv("POSTGRES_HOST")
 DB_NAME = os.getenv("POSTGRES_DB")
 DB_PORT = os.getenv("POSTGRES_PORT", 5432)
 
+# Ensure all required environment variables are set
+if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
+    logger.error(
+        "[DATABASE] Missing required environment variables for database connection."
+    )
+    sys.exit(1)
+
+# Define the postgreSQL connection URL with environment variables
 SQLALCHEMY_DATABASE_URL = (
     f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 )
-print(f"[DATABASE] Connecting to {SQLALCHEMY_DATABASE_URL}", file=sys.stderr)
+logger.info(f"[DATABASE] Connecting to {SQLALCHEMY_DATABASE_URL}")
+
+
+# Check if the database is reachable
+try:
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+except OperationalError as e:
+    logger.error(f"[DATABASE] Could not connect to the database: {e}")
+    sys.exit(1)
+
+logger.info("[DATABASE] Database connection established successfully.")
 
 # Create the SQLAlchemy engine and session
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+# Base class for declarative models, shared across the application to ensure consistency
+# see server/db/database_models.py for model definitions inheriting from this Base
 Base = declarative_base()
 
 
@@ -30,21 +51,6 @@ Base = declarative_base()
 def get_db():
     db = SessionLocal()
     try:
-        yield db
+        yield db  # Yield the session to be used in routes
     finally:
-        db.close()
-
-
-# Function to wait for the database to be ready before starting the app
-# Ensures case the app starts before the DB is ready DOES NOT happen
-def wait_for_db(engine, retries=10, delay=2):
-    for _ in range(retries):
-        try:
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
-            print("[DATABASE] Database is ready!")
-            return
-        except OperationalError:
-            print("[DATABASE] Waiting for database to be ready...")
-            time.sleep(delay)
-    raise Exception("[DATABASE] Could not connect to the database.")
+        db.close()  # Ensure the session is closed after use
