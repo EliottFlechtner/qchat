@@ -46,5 +46,3 @@ Or from inside the container:
 ```bash
 docker exec -it db psql -U admin -d qchatdb
 ```
-
-Now features CI/CD!
