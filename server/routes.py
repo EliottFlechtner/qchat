@@ -1,8 +1,10 @@
 import sys
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
+
+from server.utils.logger import logger
 from server.db.database import get_db
-from server.db.db_models import User, Message
+from server.db.database_models import User, Message
 from shared.requests_models import (
     RegisterRequest,
     SendRequest,
@@ -14,6 +16,7 @@ from shared.response_models import (
     MessageResponse,
 )
 
+# Create a router for the API endpoints (coupled with the main app in ./main.py)
 router = APIRouter()
 
 # Track connected clients
@@ -25,17 +28,27 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     if not req.username or not req.kem_pk or not req.sig_pk:
         raise HTTPException(status_code=400, detail="Missing required fields")
 
+    # TODO revisit this logic to handle existing users more gracefully?
+    # Check if the username already exists
     existing_user = db.query(User).filter_by(username=req.username).first()
     if existing_user:
-        raise HTTPException(status_code=400, detail="Username already exists")
+        return RegisterResponse(status="already_registered")
 
-    print("[SERVER] Registering user:", req.username, file=sys.stderr)
+    logger.info(f"[SERVER] Registering user: {req.username}")
 
+    # Create new user and add to the database
     new_user = User(username=req.username, kem_pk=req.kem_pk, sig_pk=req.sig_pk)
-    db.add(new_user)
-    db.commit()
+    db.add(new_user)  # Add the user to the session
 
-    print(f"[SERVER] User '{req.username}' registered successfully.", file=sys.stderr)
+    try:
+        # Submit the new user to the database
+        db.commit()
+    except Exception as e:
+        # db.rollback() # TODO review if rollback on error is needed
+        logger.error(f"[SERVER] Error registering user '{req.username}': {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+    logger.info(f"[SERVER] User '{req.username}' registered successfully.")
     return RegisterResponse(status="registered")
 
 
@@ -43,9 +56,19 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
 def get_public_key(username: str, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(username=username).first()
     if not user:
+        logger.error(f"[SERVER] User '{username}' not found.")
         raise HTTPException(status_code=404, detail="User not found")
 
-    print(f"[SERVER] Fetching public key for user: {username}", file=sys.stderr)
+    logger.info(f"[SERVER] Fetching public key for user: {username}")
+
+    # Decapsulate the public keys from the user object & return them
+    if not user.kem_pk or not user.sig_pk:
+        logger.error(f"[SERVER] Public keys not found for user: {username}")
+        raise HTTPException(
+            status_code=404, detail="Public keys not found for this user"
+        )
+
+    logger.info(f"[SERVER] Public keys for {username} fetched successfully.")
 
     return GetPublicKeysResponse(
         username=user.username,
@@ -58,8 +81,12 @@ def get_public_key(username: str, db: Session = Depends(get_db)):
 async def send_message(req: SendRequest, db: Session = Depends(get_db)):
     recipient = db.query(User).filter_by(username=req.recipient).first()
     if not recipient:
+        logger.error(f"[SERVER] Recipient '{req.recipient}' not found.")
         raise HTTPException(status_code=404, detail="Recipient not found")
 
+    logger.info(f"[SERVER] Sending message from {req.sender} to {req.recipient}")
+
+    # Create a new message object and add it to the database
     new_message = Message(
         sender=req.sender,
         receiver=req.recipient,
@@ -68,16 +95,34 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
         encapsulated_key=req.encapsulated_key,
         signature=req.signature,
     )
-    db.add(new_message)
-    db.commit()
+    db.add(new_message)  # Add the message to the session
+
+    try:
+        # Commit the new message to the database
+        logger.debug(
+            f"[SERVER] Committing message from {req.sender} to {req.recipient}"
+        )
+        db.commit()
+    except Exception as e:
+        logger.error(
+            f"[SERVER] Error sending message from {req.sender} to {req.recipient}: {e}"
+        )
+        # db.rollback() # TODO review if rollback on error is needed
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     ws = connected_clients.get(req.recipient)
     if ws:
         try:
+            logger.debug(f"[WebSocket] Notifying {req.recipient} of new message")
             await ws.send_text("new_message")
         except Exception as e:
-            print(f"[WebSocket] Failed to notify {req.recipient}: {e}")
+            logger.error(f"[WebSocket] Failed to notify {req.recipient}: {e}")
+    else:
+        logger.warning(
+            f"[WebSocket] No active WebSocket for {req.recipient}, skipping notification"
+        )
 
+    logger.info(f"[SERVER] Message sent from {req.sender} to {req.recipient}")
     return SendResponse(status="sent")
 
 
@@ -85,8 +130,12 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
 def get_inbox(username: str, db: Session = Depends(get_db)):
     user = db.query(User).filter_by(username=username).first()
     if not user:
+        logger.error(f"[SERVER] User '{username}' not found.")
         raise HTTPException(status_code=404, detail="User not found")
 
+    logger.info(f"[SERVER] Fetching inbox for user: {username}")
+
+    # Fetch all messages for the user
     messages = db.query(Message).filter_by(receiver=username).all()
 
     # Convert to response model
@@ -103,7 +152,15 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
 
     # Clear inbox (delete messages)
     for msg in messages:
-        db.delete(msg)
-    db.commit()
+        db.delete(msg)  # Remove message from the session
+
+    try:
+        # Commit the deletion of messages
+        logger.debug(f"[SERVER] Clearing inbox for user {username}")
+        db.commit()
+    except Exception as e:
+        # db.rollback()  # TODO review if rollback on error is needed
+        logger.error(f"[SERVER] Error clearing inbox for {username}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
     return response
