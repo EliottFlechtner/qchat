@@ -80,17 +80,6 @@ def send_message(
         },
     )
 
-    # write to file the b64e of all fields
-    # filename = f"sent_to_{recipient}.txt"
-    # with open(filename, "a") as f:
-    #     f.write(
-    #         f"Sender: {sender}\n"
-    #         f"Ciphertext: {b64e(ciphertext)}\n"
-    #         f"Nonce: {b64e(nonce)}\n"
-    #         f"Encapsulated Key: {b64e(encap_key)}\n"
-    #         f"Signature: {b64e(signature)}\n\n"
-    #     )
-
     # Check if the message was sent successfully
     if req.status_code != 200:
         raise Exception(
