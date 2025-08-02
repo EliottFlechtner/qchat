@@ -1,8 +1,18 @@
 import sys
-from fastapi import APIRouter, HTTPException
-from shared.models import RegisterRequest, SendRequest, MessageResponse
-from server.database import USERS, MESSAGES
-from fastapi import WebSocket
+from fastapi import APIRouter, HTTPException, Depends, WebSocket
+from sqlalchemy.orm import Session
+from server.db.database import get_db
+from server.db.db_models import User, Message
+from shared.requests_models import (
+    RegisterRequest,
+    SendRequest,
+)
+from shared.response_models import (
+    RegisterResponse,
+    GetPublicKeysResponse,
+    SendResponse,
+    MessageResponse,
+)
 
 router = APIRouter()
 
@@ -10,62 +20,57 @@ router = APIRouter()
 connected_clients: dict[str, WebSocket] = {}
 
 
-@router.post("/register")
-def register_user(req: RegisterRequest):
-    if req.username in USERS:
+@router.post("/register", response_model=RegisterResponse)
+def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
+    if not req.username or not req.kem_pk or not req.sig_pk:
+        raise HTTPException(status_code=400, detail="Missing required fields")
+
+    existing_user = db.query(User).filter_by(username=req.username).first()
+    if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
-    if not req.kem_pk or not req.sig_pk:
-        raise HTTPException(status_code=400, detail="Public keys cannot be empty")
-    if not req.username:
-        raise HTTPException(status_code=400, detail="Username cannot be empty")
 
     print("[SERVER] Registering user:", req.username, file=sys.stderr)
 
-    # Store the user's public keys & init inbox
-    USERS[req.username] = (req.kem_pk, req.sig_pk)
-    MESSAGES[req.username] = []
+    new_user = User(username=req.username, kem_pk=req.kem_pk, sig_pk=req.sig_pk)
+    db.add(new_user)
+    db.commit()
 
     print(f"[SERVER] User '{req.username}' registered successfully.", file=sys.stderr)
-
-    # Notify via WebSocket if connected
-    return {"status": "registered"}
+    return RegisterResponse(status="registered")
 
 
-# TODO response model for public key
-@router.get("/pubkey/{username}")
-def get_public_key(username: str):
-    if username not in USERS:
+@router.get("/pubkey/{username}", response_model=GetPublicKeysResponse)
+def get_public_key(username: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(username=username).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if not USERS[username][0] or not USERS[username][1]:
-        raise HTTPException(status_code=404, detail="Public keys not found")
 
     print(f"[SERVER] Fetching public key for user: {username}", file=sys.stderr)
 
-    # Return the user's public key and signature public key
-    return {
-        "username": username,
-        "kem_pk": USERS[username][0],
-        "sig_pk": USERS[username][1],
-    }
-
-
-@router.post("/send")
-async def send_message(req: SendRequest):
-    if req.recipient not in USERS:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-
-    # Store the message in the recipient's inbox
-    MESSAGES[req.recipient].append(
-        {
-            "sender": req.sender,
-            "ciphertext": req.ciphertext,
-            "nonce": req.nonce,
-            "encapsulated_key": req.encapsulated_key,
-            "signature": req.signature,
-        }
+    return GetPublicKeysResponse(
+        username=user.username,
+        kem_pk=user.kem_pk,
+        sig_pk=user.sig_pk,
     )
 
-    # Notify via WebSocket if connected
+
+@router.post("/send", response_model=SendResponse)
+async def send_message(req: SendRequest, db: Session = Depends(get_db)):
+    recipient = db.query(User).filter_by(username=req.recipient).first()
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+
+    new_message = Message(
+        sender=req.sender,
+        receiver=req.recipient,
+        ciphertext=req.ciphertext,
+        nonce=req.nonce,
+        encapsulated_key=req.encapsulated_key,
+        signature=req.signature,
+    )
+    db.add(new_message)
+    db.commit()
+
     ws = connected_clients.get(req.recipient)
     if ws:
         try:
@@ -73,17 +78,32 @@ async def send_message(req: SendRequest):
         except Exception as e:
             print(f"[WebSocket] Failed to notify {req.recipient}: {e}")
 
-    return {"status": "message stored"}
+    return SendResponse(status="sent")
 
 
 @router.get("/inbox/{username}", response_model=list[MessageResponse])
-def get_inbox(username: str):
-    if username not in MESSAGES:
+def get_inbox(username: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter_by(username=username).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Fetch the user's inbox messages & return them
-    inbox = MESSAGES[username]
+    messages = db.query(Message).filter_by(receiver=username).all()
 
-    # Clear inbox after retrieval TODO fix later
-    MESSAGES[username] = []
-    return inbox
+    # Convert to response model
+    response = [
+        MessageResponse(
+            sender=m.sender,
+            ciphertext=m.ciphertext,
+            nonce=m.nonce,
+            encapsulated_key=m.encapsulated_key,
+            signature=m.signature,
+        )
+        for m in messages
+    ]
+
+    # Clear inbox (delete messages)
+    for msg in messages:
+        db.delete(msg)
+    db.commit()
+
+    return response
