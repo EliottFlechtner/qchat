@@ -1,5 +1,4 @@
 from pqcrypto.sign import falcon_512
-from pathlib import Path
 
 
 def generate_signature_keypair():

@@ -1,5 +1,6 @@
 import requests, sys
-from client.crypto.utils import b64e, b64d, API_URL
+
+from client.utils.helpers import b64e, b64d, API_URL
 
 
 def register_user(username, kem_pk: bytes, sig_pk: bytes) -> dict:

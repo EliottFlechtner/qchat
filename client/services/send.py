@@ -1,8 +1,8 @@
 import sys
+
 from client.api.api import get_public_key, send_message
 from client.crypto.kem import encapsulate_key, encrypt_message
 from client.crypto.signature import sign_message
-from client.crypto.utils import b64e
 from client.services.login import get_local_keypair
 
 

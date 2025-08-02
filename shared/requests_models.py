@@ -14,11 +14,3 @@ class SendRequest(BaseModel):
     nonce: str  # base64
     encapsulated_key: str  # base64
     signature: str  # base64
-
-
-class MessageResponse(BaseModel):
-    sender: str
-    ciphertext: str  # base64 encoded
-    nonce: str  # base64 encoded
-    encapsulated_key: str  # base64 encoded
-    signature: str  # base64 encoded
