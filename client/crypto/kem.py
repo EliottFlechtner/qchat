@@ -1,6 +1,8 @@
 import oqs, os
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from client.crypto.aes256 import derive_aes_key, encrypt_with_aes, decrypt_with_aes
+
 KEM_ALGORITHM = "Kyber512"
 
 
@@ -28,12 +30,10 @@ def decapsulate_key(encapsulated: bytes, privkey: bytes):
 
 
 def encrypt_message(shared_secret: bytes, plaintext: str):
-    aesgcm = AESGCM(shared_secret[:16])
-    nonce = os.urandom(12)
-    ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
-    return nonce, ciphertext
+    aes_key = derive_aes_key(shared_secret)
+    return encrypt_with_aes(aes_key, plaintext)
 
 
 def decrypt_message(shared_secret: bytes, nonce: bytes, ciphertext: bytes):
-    aesgcm = AESGCM(shared_secret[:16])
-    return aesgcm.decrypt(nonce, ciphertext, None).decode()
+    aes_key = derive_aes_key(shared_secret)
+    return decrypt_with_aes(aes_key, nonce, ciphertext)
