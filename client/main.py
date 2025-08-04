@@ -3,6 +3,8 @@ import sys
 from client.services.login import login_or_register
 from client.services.send import send_encrypted_message
 from client.network.websocket import start_websocket_thread
+from client.services.inbox import fetch_and_decrypt_inbox
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -35,6 +37,11 @@ if __name__ == "__main__":
     print("--------------------------------------------------")
 
     try:
+        # Fetch any messages in the inbox that were sent while the client was offline
+        print(f"[CLIENT] Fetching inbox for {username}...", file=sys.stderr)
+        fetch_and_decrypt_inbox(username)
+        print(f"[CLIENT] Inbox fetched successfully.", file=sys.stderr)
+
         # Main loop to read user input and send messages
         while True:
             msg = input("> ").strip()
