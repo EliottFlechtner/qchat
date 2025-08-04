@@ -4,7 +4,8 @@ import asyncio
 
 from server.db.database import engine, Base
 from server.db.database_models import User, Message  # Safety import for Base
-from server.routes import router, connected_clients
+from server.routes.http_routes import router
+from server.routes.ws_routes import ws_router as ws_router
 from server.utils.logger import logger
 
 
@@ -22,22 +23,7 @@ async def lifespan(app: FastAPI):
     logger.debug("[DATABASE] Shutting down database connection")
 
 
-# Create FastAPI app and include the router
+# Create FastAPI app and include routers
 app = FastAPI(title="Post-Quantum Chat Server", lifespan=lifespan)
 app.include_router(router)
-
-
-# WebSocket endpoint watching & notifying for client connections
-@app.websocket("/ws/{username}")
-async def websocket_endpoint(websocket: WebSocket, username: str) -> None:
-    await websocket.accept()
-    connected_clients[username] = websocket
-    logger.debug(f"[WEBSOCKET] {username} connected.")
-
-    try:
-        while True:
-            await websocket.receive_text()  # Just keep alive; client doesn't need to send.
-    except Exception as e:
-        logger.debug(f"[WEBSOCKET] {username} disconnected: {e}")
-    finally:
-        connected_clients.pop(username, None)
+app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
