@@ -14,3 +14,4 @@ class SendRequest(BaseModel):
     nonce: str  # base64
     encapsulated_key: str  # base64
     signature: str  # base64
+    expires_at: str | None = None  # Optional expiration time
