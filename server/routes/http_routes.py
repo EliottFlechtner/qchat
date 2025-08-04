@@ -37,7 +37,13 @@ def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
     logger.info(f"[SERVER] Registering user: {req.username}")
 
     # Create new user and add to the database
-    new_user = User(username=req.username, kem_pk=req.kem_pk, sig_pk=req.sig_pk)
+    new_user = User(
+        username=req.username,
+        kem_pk=req.kem_pk,
+        sig_pk=req.sig_pk,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
     db.add(new_user)  # Add the user to the session
 
     try:
