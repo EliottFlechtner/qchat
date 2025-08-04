@@ -72,12 +72,15 @@ def send_message(
     req = requests.post(
         f"{API_URL}/send",
         json={
+            # Identifiers (ids & type)
             "sender": sender,
             "recipient": recipient,
+            # Encryption metadata
             "ciphertext": b64e(ciphertext),
             "nonce": b64e(nonce),
             "encapsulated_key": b64e(encap_key),
             "signature": b64e(signature),
+            "expires_at": None,  # Optional, can be set to None for no expiration
         },
     )
 
