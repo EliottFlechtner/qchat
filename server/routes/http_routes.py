@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
+from datetime import datetime, timezone
 
 from server.utils.logger import logger
 from server.db.database import get_db
@@ -87,12 +88,24 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
 
     # Create a new message object and add it to the database
     new_message = Message(
+        # Identifiers (ids & type)
         sender=req.sender,
-        receiver=req.recipient,
+        recipient=req.recipient,
+        type="text",  # Default type, can be extended later
+        # Status flags
+        sent=True,  # Mark as sent immediately
+        delivered=False,  # Initially not delivered
+        read=False,  # Initially not read
+        # Timestamps
+        sent_timestamp=None,  # TODO fix, use current time
+        delivered_timestamp=None,
+        read_timestamp=None,
+        # Encryption metadata
         ciphertext=req.ciphertext,
         nonce=req.nonce,
         encapsulated_key=req.encapsulated_key,
         signature=req.signature,
+        expires_at=req.expires_at,  # Optional expiration time
     )
     db.add(new_message)  # Add the message to the session
 
@@ -109,6 +122,7 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
         # db.rollback() # TODO review if rollback on error is needed
         raise HTTPException(status_code=500, detail="Internal server error")
 
+    # Notify the recipient via WebSocket if they are connected
     ws = connected_clients.get(req.recipient)
     if ws:
         try:
@@ -135,7 +149,7 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
     logger.info(f"[SERVER] Fetching inbox for user: {username}")
 
     # Fetch all messages for the user
-    messages = db.query(Message).filter_by(receiver=username).all()
+    messages = db.query(Message).filter_by(recipient=username).all()
 
     # Convert to response model
     response = [
