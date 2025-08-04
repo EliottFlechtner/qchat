@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text
+from sqlalchemy import String, Text, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.db.database import Base  # import the shared Base from database.py
@@ -7,6 +7,7 @@ from server.db.database import Base  # import the shared Base from database.py
 class User(Base):
     __tablename__ = "users"
 
+    # Identifiers
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(
         String, unique=True, index=True, nullable=False
@@ -14,14 +15,54 @@ class User(Base):
     kem_pk: Mapped[str] = mapped_column(Text, nullable=False)
     sig_pk: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # Timestamps
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username})>"
+
 
 class Message(Base):
     __tablename__ = "messages"
 
+    # Identifiers (ids & type)
     id: Mapped[int] = mapped_column(primary_key=True)
     sender: Mapped[str] = mapped_column(Text, nullable=False)
-    receiver: Mapped[str] = mapped_column(Text, nullable=False)
+    recipient: Mapped[str] = mapped_column(Text, nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
+
+    # Status flags
+    sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+    read: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Timestamps
+    sent_timestamp: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    delivered_timestamp: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    read_timestamp: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Encryption metadata
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[str] = mapped_column(Text, nullable=False)
     encapsulated_key: Mapped[str] = mapped_column(Text, nullable=False)
     signature: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    def __repr__(self):
+        return (
+            f"<Message(id={self.id}, sender={self.sender}, recipient={self.recipient}, "
+            f"sent={self.sent}, delivered={self.delivered}, read={self.read})>"
+        )
