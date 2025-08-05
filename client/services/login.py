@@ -97,7 +97,7 @@ def login_or_register(username: str):
         print(f"[!] No existing keys found for '{username}'")
 
         # Generate KEM & Signature keypairs
-        print("[+] Generating new KEM and Signature keypairs.*7=..")
+        print("[+] Generating new KEM and Signature keypairs.")
         kem_keys = generate_kem_keypair()
         sig_keys = generate_signature_keypair()
         if not kem_keys or not sig_keys:
