@@ -1,4 +1,4 @@
-from sqlalchemy import String, Text, Boolean, DateTime, func
+from sqlalchemy import ForeignKey, Integer, String, Text, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.db.database import Base  # import the shared Base from database.py
@@ -9,9 +9,7 @@ class User(Base):
 
     # Identifiers
     id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(
-        String, unique=True, index=True, nullable=False
-    )
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     kem_pk: Mapped[str] = mapped_column(Text, nullable=False)
     sig_pk: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -32,8 +30,12 @@ class Message(Base):
 
     # Identifiers (ids & type)
     id: Mapped[int] = mapped_column(primary_key=True)
-    sender: Mapped[str] = mapped_column(Text, nullable=False)
-    recipient: Mapped[str] = mapped_column(Text, nullable=False)
+    sender_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
+    recipient_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
+    )
     type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
 
     # Status flags
@@ -63,6 +65,6 @@ class Message(Base):
 
     def __repr__(self):
         return (
-            f"<Message(id={self.id}, sender={self.sender}, recipient={self.recipient}, "
+            f"<Message(id={self.id}, sender_id={self.sender_id}, recipient_id={self.recipient_id}, "
             f"sent={self.sent}, delivered={self.delivered}, read={self.read})>"
         )

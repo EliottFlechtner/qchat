@@ -16,7 +16,7 @@ class GetPublicKeysResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    sender: str
+    sender: str  # username of the sender
     ciphertext: str  # base64 encoded
     nonce: str  # base64 encoded
     encapsulated_key: str  # base64 encoded
