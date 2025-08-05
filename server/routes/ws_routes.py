@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from server.utils.logger import logger
 from server.db.database import get_db
-from server.db.database_models import Message
+from server.db.database_models import User, Message
 from server.routes.http_routes import connected_clients
 
 # Router is prefixed with "/ws" to indicate WebSocket routes
@@ -14,13 +14,24 @@ from server.routes.http_routes import connected_clients
 ws_router = APIRouter()
 
 
-@ws_router.websocket("/{username}")
+@ws_router.websocket("/{username}")  # no need for prefix, handled by main app
 async def message_websocket(
     websocket: WebSocket, username: str, db: Session = Depends(get_db)
 ):
     await websocket.accept()
-    connected_clients[username] = websocket
-    logger.debug(f"[WebSocket] {username} connected.")
+
+    # Resolve username's ID from the database
+    user = db.query(User).filter_by(username=username).first()
+    if not user:
+        # Close connection with error code 1008 (policy violation)
+        logger.error(f"[WebSocket] User '{username}' not found.")
+        await websocket.close(code=1008)
+        return
+
+    # Store the WebSocket connection in the connected clients dictionary
+    if user.id not in connected_clients:
+        connected_clients[user.id] = websocket
+    logger.debug(f"[WebSocket] {username} (id: {user.id}) connected.")
 
     try:
         now_utc = datetime.now(timezone.utc)
@@ -29,7 +40,7 @@ async def message_websocket(
         pending_messages = (
             db.query(Message)
             .filter(
-                Message.recipient == username,
+                Message.recipient_id == user.id,
                 Message.delivered == False,
                 # TODO filter expired messages here
                 # (Message.expires_at.is_(None) | (Message.expires_at > now_utc))
@@ -62,4 +73,4 @@ async def message_websocket(
     except Exception as e:
         logger.debug(f"[WebSocket] {username} disconnected: {e}")
     finally:
-        connected_clients.pop(username, None)
+        connected_clients.pop(user.id, None)
