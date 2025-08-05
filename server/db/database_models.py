@@ -1,4 +1,6 @@
+import uuid
 from sqlalchemy import ForeignKey, Integer, String, Text, Boolean, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.db.database import Base  # import the shared Base from database.py
@@ -8,7 +10,9 @@ class User(Base):
     __tablename__ = "users"
 
     # Identifiers
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
     username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     kem_pk: Mapped[str] = mapped_column(Text, nullable=False)
     sig_pk: Mapped[str] = mapped_column(Text, nullable=False)
@@ -29,12 +33,12 @@ class Message(Base):
     __tablename__ = "messages"
 
     # Identifiers (ids & type)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    sender_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    sender_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
-    recipient_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
     type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
 

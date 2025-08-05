@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
@@ -20,8 +21,7 @@ from shared.response_models import (
 router = APIRouter()
 
 # Track connected clients
-# TODO, use UUIDs
-connected_clients: dict[int, WebSocket] = {}
+connected_clients: dict[uuid.UUID, WebSocket] = {}
 
 
 @router.post("/register", response_model=RegisterResponse)
