@@ -3,7 +3,7 @@ import sys
 from client.api import get_inbox, get_public_key
 from client.crypto.kem import decapsulate_key, decrypt_message
 from client.services.login import get_local_keypair
-from client.utils.helpers import b64d, b64e
+from client.utils.helpers import b64d
 from client.crypto.signature import verify_signature
 
 
