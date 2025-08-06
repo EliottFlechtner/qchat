@@ -2,6 +2,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from typing import cast
 
 from server.utils.logger import logger
 from server.db.database import get_db
@@ -112,9 +113,9 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
         delivered=False,  # Initially not delivered
         read=False,  # Initially not read
         # Timestamps
-        sent_timestamp=datetime.now(timezone.utc),  # when stored in the db
-        delivered_timestamp=None,  # when delivered to recipient websocket
-        read_timestamp=None,  # when read by recipient (fetched) TODO remove?
+        sent_at=None,  # assigned by DB (func.now() on insert)
+        delivered_at=None,  # when delivered to recipient websocket
+        read_at=None,  # when read by recipient (fetched) TODO remove?
         # Encryption metadata
         ciphertext=req.ciphertext,
         nonce=req.nonce,
@@ -163,8 +164,10 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
 
     logger.info(f"[SERVER] Fetching inbox for user: {username}")
 
-    # Fetch all messages for the user
-    messages = db.query(Message).filter_by(recipient_id=user.id).all()
+    # Fetch all messages for the user (order doesn't matter here)
+    messages = (
+        db.query(Message).filter_by(recipient_id=user.id, delivered=False)
+    ).all()  # Only fetch undelivered messages
     if not messages:
         logger.info(f"[SERVER] No messages found for user: {username}")
         return []
@@ -174,6 +177,11 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
     # Fill response with message details to be returned and decrypted by client
     response = []
     for msg in messages:
+        # Change the message's delivered status to True
+        msg.delivered = True
+        # TODO fix timestamps
+        # msg.delivered_at = datetime.now(timezone.utc)  # Set delivered timestamp
+
         # Ensure the message has a sender_id
         if not msg.sender_id:
             logger.error(f"[SERVER] Message {msg.id} has no sender_id.")
@@ -193,11 +201,13 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
                 nonce=msg.nonce,
                 encapsulated_key=msg.encapsulated_key,
                 signature=msg.signature,
+                sent_at=cast(datetime, msg.sent_at),
             )
         )
 
         # Delete the message from the database (mark as "dealt with")
         db.delete(msg)  # Remove message from the session
+        # TODO delete to review
     logger.info(f"[SERVER] Inbox for {username} fetched successfully.")
 
     try:
@@ -209,4 +219,5 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
         logger.error(f"[SERVER] Error clearing inbox for {username}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    return response
+    # Return the sorted response by sent_at (oldest first)
+    return sorted(response, key=lambda x: x.sent_at or datetime.min)
