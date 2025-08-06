@@ -3,7 +3,7 @@ import requests, sys
 from client.utils.helpers import b64e, b64d, API_URL
 
 
-def register_user(username, kem_pk: bytes, sig_pk: bytes) -> dict:
+def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> dict:
     if not username or not kem_pk or not sig_pk:
         raise ValueError("Username and public keys cannot be empty")
 

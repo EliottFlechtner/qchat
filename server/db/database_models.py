@@ -1,4 +1,6 @@
-from sqlalchemy import String, Text, Boolean, DateTime, func
+import uuid
+from sqlalchemy import ForeignKey, Integer, String, Text, Boolean, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from server.db.database import Base  # import the shared Base from database.py
@@ -8,10 +10,10 @@ class User(Base):
     __tablename__ = "users"
 
     # Identifiers
-    id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(
-        String, unique=True, index=True, nullable=False
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     kem_pk: Mapped[str] = mapped_column(Text, nullable=False)
     sig_pk: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -31,9 +33,13 @@ class Message(Base):
     __tablename__ = "messages"
 
     # Identifiers (ids & type)
-    id: Mapped[int] = mapped_column(primary_key=True)
-    sender: Mapped[str] = mapped_column(Text, nullable=False)
-    recipient: Mapped[str] = mapped_column(Text, nullable=False)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    sender_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
     type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
 
     # Status flags
@@ -42,15 +48,13 @@ class Message(Base):
     read: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Timestamps
-    sent_timestamp: Mapped[DateTime] = mapped_column(
+    sent_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    delivered_timestamp: Mapped[DateTime] = mapped_column(
+    delivered_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    read_timestamp: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    read_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Encryption metadata
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
@@ -63,6 +67,6 @@ class Message(Base):
 
     def __repr__(self):
         return (
-            f"<Message(id={self.id}, sender={self.sender}, recipient={self.recipient}, "
+            f"<Message(id={self.id}, sender_id={self.sender_id}, recipient_id={self.recipient_id}, "
             f"sent={self.sent}, delivered={self.delivered}, read={self.read})>"
         )

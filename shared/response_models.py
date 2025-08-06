@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from datetime import datetime
 
 
 class RegisterResponse(BaseModel):
@@ -16,8 +17,9 @@ class GetPublicKeysResponse(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    sender: str
+    sender: str  # username of the sender
     ciphertext: str  # base64 encoded
     nonce: str  # base64 encoded
     encapsulated_key: str  # base64 encoded
     signature: str  # base64 encoded
+    sent_at: datetime  # ISO 8601 formatted string

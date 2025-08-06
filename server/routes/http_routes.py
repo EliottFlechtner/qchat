@@ -1,6 +1,8 @@
+import uuid
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
+from typing import cast
 
 from server.utils.logger import logger
 from server.db.database import get_db
@@ -20,7 +22,7 @@ from shared.response_models import (
 router = APIRouter()
 
 # Track connected clients
-connected_clients: dict[str, WebSocket] = {}
+connected_clients: dict[uuid.UUID, WebSocket] = {}
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -85,6 +87,14 @@ def get_public_key(username: str, db: Session = Depends(get_db)):
 
 @router.post("/send", response_model=SendResponse)
 async def send_message(req: SendRequest, db: Session = Depends(get_db)):
+    # TODO helpers to streamline function readability
+    # Resolve's sender ID from username + ensure exists
+    sender = db.query(User).filter_by(username=req.sender).first()
+    if not sender:
+        logger.error(f"[SERVER] Sender '{req.sender}' not found.")
+        raise HTTPException(status_code=404, detail="Sender not found")
+
+    # Resolve recipient ID from username + ensure exists
     recipient = db.query(User).filter_by(username=req.recipient).first()
     if not recipient:
         logger.error(f"[SERVER] Recipient '{req.recipient}' not found.")
@@ -95,17 +105,17 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
     # Create a new message object and add it to the database
     new_message = Message(
         # Identifiers (ids & type)
-        sender=req.sender,
-        recipient=req.recipient,
+        sender_id=sender.id,
+        recipient_id=recipient.id,
         type="text",  # Default type, can be extended later
         # Status flags
         sent=True,  # Mark as sent immediately
         delivered=False,  # Initially not delivered
         read=False,  # Initially not read
         # Timestamps
-        sent_timestamp=None,  # TODO fix, use current time
-        delivered_timestamp=None,
-        read_timestamp=None,
+        sent_at=None,  # assigned by DB (func.now() on insert)
+        delivered_at=None,  # when delivered to recipient websocket
+        read_at=None,  # when read by recipient (fetched) TODO remove?
         # Encryption metadata
         ciphertext=req.ciphertext,
         nonce=req.nonce,
@@ -128,8 +138,8 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)):
         # db.rollback() # TODO review if rollback on error is needed
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    # Notify the recipient via WebSocket if they are connected
-    ws = connected_clients.get(req.recipient)
+    # Notify the recipient via WebSocket if they are connected that a new message has arrived
+    ws = connected_clients.get(recipient.id)
     if ws:
         try:
             logger.debug(f"[WebSocket] Notifying {req.recipient} of new message")
@@ -154,24 +164,51 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
 
     logger.info(f"[SERVER] Fetching inbox for user: {username}")
 
-    # Fetch all messages for the user
-    messages = db.query(Message).filter_by(recipient=username).all()
+    # Fetch all messages for the user (order doesn't matter here)
+    messages = (
+        db.query(Message).filter_by(recipient_id=user.id, delivered=False)
+    ).all()  # Only fetch undelivered messages
+    if not messages:
+        logger.info(f"[SERVER] No messages found for user: {username}")
+        return []
 
-    # Convert to response model
-    response = [
-        MessageResponse(
-            sender=m.sender,
-            ciphertext=m.ciphertext,
-            nonce=m.nonce,
-            encapsulated_key=m.encapsulated_key,
-            signature=m.signature,
-        )
-        for m in messages
-    ]
+    logger.debug(f"[SERVER] Found {len(messages)} messages for user: {username}")
 
-    # Clear inbox (delete messages)
+    # Fill response with message details to be returned and decrypted by client
+    response = []
     for msg in messages:
+        # Change the message's delivered status to True
+        msg.delivered = True
+        # TODO fix timestamps
+        # msg.delivered_at = datetime.now(timezone.utc)  # Set delivered timestamp
+
+        # Ensure the message has a sender_id
+        if not msg.sender_id:
+            logger.error(f"[SERVER] Message {msg.id} has no sender_id.")
+            continue
+
+        # Resolve the sender's username from sender_id
+        sender = db.query(User).filter_by(id=msg.sender_id).first()
+        if not sender:
+            logger.error(f"[SERVER] Sender with ID {msg.sender_id} not found.")
+            continue
+
+        # Append the message to the response
+        response.append(
+            MessageResponse(
+                sender=sender.username,  # client only uses username
+                ciphertext=msg.ciphertext,
+                nonce=msg.nonce,
+                encapsulated_key=msg.encapsulated_key,
+                signature=msg.signature,
+                sent_at=cast(datetime, msg.sent_at),
+            )
+        )
+
+        # Delete the message from the database (mark as "dealt with")
         db.delete(msg)  # Remove message from the session
+        # TODO delete to review
+    logger.info(f"[SERVER] Inbox for {username} fetched successfully.")
 
     try:
         # Commit the deletion of messages
@@ -182,4 +219,5 @@ def get_inbox(username: str, db: Session = Depends(get_db)):
         logger.error(f"[SERVER] Error clearing inbox for {username}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    return response
+    # Return the sorted response by sent_at (oldest first)
+    return sorted(response, key=lambda x: x.sent_at or datetime.min)
