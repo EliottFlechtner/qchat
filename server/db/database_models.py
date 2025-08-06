@@ -48,15 +48,13 @@ class Message(Base):
     read: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Timestamps
-    sent_timestamp: Mapped[DateTime] = mapped_column(
+    sent_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    delivered_timestamp: Mapped[DateTime] = mapped_column(
+    delivered_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    read_timestamp: Mapped[DateTime] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    read_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Encryption metadata
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
