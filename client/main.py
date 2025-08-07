@@ -3,7 +3,6 @@ import sys
 from client.services.login import login_or_register
 from client.services.send import send_encrypted_message
 from client.network.websocket import start_websocket_thread
-from client.services.inbox import fetch_and_decrypt_inbox
 
 
 if __name__ == "__main__":
