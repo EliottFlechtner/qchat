@@ -1,6 +1,15 @@
 import base64
+from client.config.settings import client_settings
 
-API_URL = "http://localhost:8000"
+
+def get_api_url() -> str:
+    """Get the API URL from configuration."""
+    return client_settings.server_url
+
+
+def get_ws_url() -> str:
+    """Get the WebSocket URL from configuration."""
+    return client_settings.ws_url
 
 
 def b64e(data: bytes) -> str:

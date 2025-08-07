@@ -4,9 +4,7 @@ import websockets
 from typing import Optional
 
 from client.services.inbox import fetch_and_decrypt_inbox
-
-# WebSocket API endpoint for real-time message notifications
-API_WS_URL = "ws://localhost:8000/ws"
+from client.utils.helpers import get_ws_url
 
 
 def start_ws_listener(username: str) -> None:
@@ -39,7 +37,7 @@ def start_ws_listener(username: str) -> None:
     async def listen() -> None:
         """Inner async function that handles the WebSocket connection and message listening."""
         # Construct WebSocket URI with the username for targeted notifications
-        uri = f"{API_WS_URL}/{username.strip()}"
+        uri = f"{get_ws_url()}/{username.strip()}"
 
         try:
             # Establish WebSocket connection with automatic ping/pong handling
