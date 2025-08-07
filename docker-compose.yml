@@ -35,7 +35,7 @@ services:
     restart: on-failure
     mem_limit: 256m
     cpus: 0.5
-    # remove host port exposure security?
+    # TODO remove host port exposure security?
     # ports:
     #   - "5432:5432"
 
