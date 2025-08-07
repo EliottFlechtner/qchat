@@ -2,7 +2,7 @@ import requests
 import sys
 from typing import List, Dict, Any
 
-from client.utils.helpers import b64e, b64d, API_URL
+from client.utils.helpers import b64e, b64d, get_api_url
 
 
 def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> Dict[str, str]:
@@ -32,7 +32,7 @@ def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> Dict[str, str]
     try:
         # Register user with base64-encoded public keys
         req = requests.post(
-            f"{API_URL}/register",
+            f"{get_api_url()}/register",
             json={
                 "username": username,
                 "kem_pk": b64e(kem_pk),  # Kyber512 public key for encryption
@@ -76,7 +76,7 @@ def get_public_key(username: str, field: str = "kem_pk") -> bytes:
 
     try:
         # Fetch user's public keys from server
-        res = requests.get(f"{API_URL}/pubkey/{username}")
+        res = requests.get(f"{get_api_url()}/pubkey/{username}")
 
         # Check if key retrieval was successful
         if res.status_code != 200:
@@ -142,7 +142,7 @@ def send_message(
     try:
         # Send encrypted message with all cryptographic components
         req = requests.post(
-            f"{API_URL}/send",
+            f"{get_api_url()}/send",
             json={
                 # Message identifiers
                 "sender": sender,
@@ -193,7 +193,7 @@ def get_inbox(username: str) -> List[Dict[str, Any]]:
 
     try:
         # Fetch user's inbox messages from server
-        res = requests.get(f"{API_URL}/inbox/{username}")
+        res = requests.get(f"{get_api_url()}/inbox/{username}")
 
         # Handle unsuccessful requests
         if res.status_code != 200:

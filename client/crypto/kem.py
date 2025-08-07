@@ -1,33 +1,33 @@
 import oqs
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from client.crypto.aes256 import derive_aes_key, encrypt_with_aes, decrypt_with_aes
-
-# Post-quantum cryptographic algorithm - Kyber512 provides 128-bit security level
-KEM_ALGORITHM = "Kyber512"
+from client.config.settings import client_settings
 
 
 def generate_kem_keypair() -> tuple[bytes, bytes]:
-    """Generates a KEM keypair using the specified algorithm.
+    """Generates a KEM keypair using the configured algorithm.
 
-    This function uses the OQS library to generate a keypair for the specified KEM algorithm.
-    Kyber512 is a post-quantum key encapsulation mechanism that provides security against
-    both classical and quantum computer attacks.
+    This function uses the OQS library to generate a keypair for the KEM algorithm
+    specified in the client configuration. The algorithm is configurable via
+    environment variables or the default settings.
 
     :return: A tuple containing the public key and the private key.
     :raises RuntimeError: If the KEM algorithm is not supported or if key generation fails.
     :raises TypeError: If the KEM algorithm is not of type str.
     :raises ValueError: If the KEM algorithm is an empty string.
     """
+    # Get algorithm from configuration
+    kem_algorithm = client_settings.kem_algorithm
+
     # Validate algorithm parameter
-    if not isinstance(KEM_ALGORITHM, str):
+    if not isinstance(kem_algorithm, str):
         raise TypeError("KEM algorithm must be a string")
-    if not KEM_ALGORITHM:
+    if not kem_algorithm:
         raise ValueError("KEM algorithm must not be an empty string")
 
     try:
         # Generate keypair using OQS library context manager for proper cleanup
-        with oqs.KeyEncapsulation(KEM_ALGORITHM) as kem:
+        with oqs.KeyEncapsulation(kem_algorithm) as kem:
             # Returns public key, stores private key in kem instance
             pub = kem.generate_keypair()
             # Extract private key from the KEM instance
@@ -63,8 +63,10 @@ def encapsulate_key(kem_pk: bytes) -> tuple[bytes, bytes]:
         raise ValueError("Public key must be a non-empty bytes object")
 
     try:
+        # Get algorithm from configuration
+        kem_algorithm = client_settings.kem_algorithm
         # Perform key encapsulation using the recipient's public key
-        with oqs.KeyEncapsulation(KEM_ALGORITHM) as kem:
+        with oqs.KeyEncapsulation(kem_algorithm) as kem:
             # Generate random shared secret and encapsulate it with the public key
             # This produces both the ciphertext (for transmission) and shared secret (for local use)
             ciphertext_kem, shared_secret = kem.encap_secret(kem_pk)
@@ -106,8 +108,10 @@ def decapsulate_key(encapsulated: bytes, kem_sk: bytes) -> bytes:
         raise ValueError("Private key must be a non-empty bytes object")
 
     try:
+        # Get algorithm from configuration
+        kem_algorithm = client_settings.kem_algorithm
         # Use private key to decrypt the encapsulated shared secret
-        with oqs.KeyEncapsulation(KEM_ALGORITHM, secret_key=kem_sk) as kem:
+        with oqs.KeyEncapsulation(kem_algorithm, secret_key=kem_sk) as kem:
             # Recover the original shared secret from the ciphertext
             shared_secret = kem.decap_secret(encapsulated)
     except Exception as e:

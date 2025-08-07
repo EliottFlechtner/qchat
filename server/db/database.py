@@ -1,32 +1,17 @@
-import os, sys
-from dotenv import load_dotenv
+import sys
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.exc import OperationalError
 
 from server.utils.logger import logger
+from server.config.settings import settings
 
 
-# Load environment variables for database configuration from .env file
-load_dotenv()
-DB_USER = os.getenv("POSTGRES_USER")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
-DB_HOST = os.getenv("POSTGRES_HOST")
-DB_NAME = os.getenv("POSTGRES_DB")
-DB_PORT = os.getenv("POSTGRES_PORT", 5432)
-
-# Ensure all required environment variables are set
-if not all([DB_USER, DB_PASSWORD, DB_HOST, DB_NAME]):
-    logger.error(
-        "[DATABASE] Missing required environment variables for database connection."
-    )
-    sys.exit(1)
-
-# Define the postgreSQL connection URL with environment variables
-SQLALCHEMY_DATABASE_URL = (
-    f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+# Get database URL from centralized configuration
+SQLALCHEMY_DATABASE_URL = settings.database_url
+logger.info(
+    f"[DATABASE] Connecting to database at {settings.postgres_host}:{settings.postgres_port}"
 )
-logger.info(f"[DATABASE] Connecting to {SQLALCHEMY_DATABASE_URL}")
 
 
 # Check if the database is reachable
