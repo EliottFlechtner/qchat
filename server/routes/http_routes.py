@@ -1,8 +1,9 @@
 import uuid
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
-from typing import cast
+from typing import Dict, List, cast
 
 from server.utils.logger import logger
 from server.db.database import get_db
@@ -18,206 +19,372 @@ from shared.response_models import (
     MessageResponse,
 )
 
-# Create a router for the API endpoints (coupled with the main app in ./main.py)
+# Create FastAPI router for all HTTP endpoints
 router = APIRouter()
 
-# Track connected clients
-connected_clients: dict[uuid.UUID, WebSocket] = {}
+# Global WebSocket client tracking for real-time notifications
+connected_clients: Dict[uuid.UUID, WebSocket] = {}
 
 
 @router.post("/register", response_model=RegisterResponse)
-def register_user(req: RegisterRequest, db: Session = Depends(get_db)):
+def register_user(
+    req: RegisterRequest, db: Session = Depends(get_db)
+) -> RegisterResponse:
+    """Registers a new user with their post-quantum cryptographic public keys.
+
+    Stores the user's KEM and signature public keys in the database for message
+    encryption and signature verification. Handles duplicate registrations gracefully.
+
+    Endpoint: POST /register
+    Request: {"username": str, "kem_pk": str, "sig_pk": str}
+    Response: {"status": "registered" | "already_registered"}
+
+    :param req: Registration request containing username and base64-encoded public keys.
+    :param db: Database session dependency injection.
+    :return: Registration status response.
+    :raises HTTPException: 400 for missing fields, 500 for database errors.
+    """
+    # Validate required fields are present
     if not req.username or not req.kem_pk or not req.sig_pk:
+        logger.warning("[SERVER] Registration attempt with missing required fields")
         raise HTTPException(status_code=400, detail="Missing required fields")
 
-    # TODO revisit this logic to handle existing users more gracefully?
-    # Check if the username already exists
-    existing_user = db.query(User).filter_by(username=req.username).first()
-    if existing_user:
-        return RegisterResponse(status="already_registered")
+    # Validate username format
+    if not req.username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
 
-    logger.info(f"[SERVER] Registering user: {req.username}")
-
-    # Create new user and add to the database
-    new_user = User(
-        username=req.username,
-        kem_pk=req.kem_pk,
-        sig_pk=req.sig_pk,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-    db.add(new_user)  # Add the user to the session
+    username = req.username.strip()
 
     try:
-        # Submit the new user to the database
-        db.commit()
-    except Exception as e:
-        # db.rollback() # TODO review if rollback on error is needed
-        logger.error(f"[SERVER] Error registering user '{req.username}': {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        # Check if username already exists in database
+        existing_user = db.query(User).filter_by(username=username).first()
+        if existing_user:
+            logger.info(
+                f"[SERVER] User '{username}' already registered, returning existing status"
+            )
+            return RegisterResponse(status="already_registered")
 
-    logger.info(f"[SERVER] User '{req.username}' registered successfully.")
-    return RegisterResponse(status="registered")
+        logger.info(f"[SERVER] Registering new user: {username}")
+
+        # Create new user record with current timestamp
+        current_time = datetime.now(timezone.utc)
+        new_user = User(
+            username=username,
+            kem_pk=req.kem_pk,  # Kyber512 public key for message encryption
+            sig_pk=req.sig_pk,  # Falcon-512 public key for signature verification
+            created_at=current_time,
+            updated_at=current_time,
+        )
+
+        # Add user to database session
+        db.add(new_user)
+
+        # Commit transaction to persist user
+        db.commit()
+
+        logger.info(f"[SERVER] User '{username}' registered successfully")
+        return RegisterResponse(status="registered")
+
+    except SQLAlchemyError as e:
+        # Handle database-specific errors with rollback
+        db.rollback()
+        logger.error(f"[SERVER] Database error registering user '{username}': {e}")
+        raise HTTPException(
+            status_code=500, detail="Database error during registration"
+        )
+    except Exception as e:
+        # Handle unexpected errors
+        db.rollback()
+        logger.error(f"[SERVER] Unexpected error registering user '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/pubkey/{username}", response_model=GetPublicKeysResponse)
-def get_public_key(username: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter_by(username=username).first()
-    if not user:
-        logger.error(f"[SERVER] User '{username}' not found.")
-        raise HTTPException(status_code=404, detail="User not found")
+def get_public_key(
+    username: str, db: Session = Depends(get_db)
+) -> GetPublicKeysResponse:
+    """Retrieves a user's public keys for cryptographic operations.
 
-    logger.info(f"[SERVER] Fetching public key for user: {username}")
+    Returns both KEM and signature public keys needed for sending encrypted
+    messages to the user and verifying messages from the user.
 
-    # Decapsulate the public keys from the user object & return them
-    if not user.kem_pk or not user.sig_pk:
-        logger.error(f"[SERVER] Public keys not found for user: {username}")
-        raise HTTPException(
-            status_code=404, detail="Public keys not found for this user"
+    Endpoint: GET /pubkey/{username}
+    Response: {"username": str, "kem_pk": str, "sig_pk": str}
+
+    :param username: Username whose public keys to retrieve.
+    :param db: Database session dependency injection.
+    :return: User's public keys response.
+    :raises HTTPException: 404 if user or keys not found, 500 for database errors.
+    """
+    # Validate username parameter
+    if not username or not username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+
+    username = username.strip()
+
+    try:
+        # Query user from database
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            logger.warning(
+                f"[SERVER] Public key request for non-existent user: {username}"
+            )
+            raise HTTPException(status_code=404, detail="User not found")
+
+        logger.info(f"[SERVER] Fetching public keys for user: {username}")
+
+        # Validate user has required public keys
+        if not user.kem_pk or not user.sig_pk:
+            logger.error(f"[SERVER] Incomplete public keys for user: {username}")
+            raise HTTPException(
+                status_code=404, detail="Public keys not found for this user"
+            )
+
+        logger.info(f"[SERVER] Public keys for '{username}' retrieved successfully")
+
+        return GetPublicKeysResponse(
+            username=user.username,
+            kem_pk=user.kem_pk,  # KEM public key for encryption
+            sig_pk=user.sig_pk,  # Signature public key for verification
         )
 
-    logger.info(f"[SERVER] Public keys for {username} fetched successfully.")
-
-    return GetPublicKeysResponse(
-        username=user.username,
-        kem_pk=user.kem_pk,
-        sig_pk=user.sig_pk,
-    )
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"[SERVER] Error fetching public keys for '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/send", response_model=SendResponse)
-async def send_message(req: SendRequest, db: Session = Depends(get_db)):
-    # TODO helpers to streamline function readability
-    # Resolve's sender ID from username + ensure exists
-    sender = db.query(User).filter_by(username=req.sender).first()
-    if not sender:
-        logger.error(f"[SERVER] Sender '{req.sender}' not found.")
-        raise HTTPException(status_code=404, detail="Sender not found")
+async def send_message(req: SendRequest, db: Session = Depends(get_db)) -> SendResponse:
+    """Stores an encrypted message and notifies the recipient via WebSocket.
 
-    # Resolve recipient ID from username + ensure exists
-    recipient = db.query(User).filter_by(username=req.recipient).first()
-    if not recipient:
-        logger.error(f"[SERVER] Recipient '{req.recipient}' not found.")
-        raise HTTPException(status_code=404, detail="Recipient not found")
+    Validates both sender and recipient exist, stores the encrypted message with
+    all cryptographic components, and sends real-time notification if recipient
+    is connected via WebSocket.
 
-    logger.info(f"[SERVER] Sending message from {req.sender} to {req.recipient}")
+    Endpoint: POST /send
+    Request: {
+        "sender": str, "recipient": str,
+        "ciphertext": str, "nonce": str,
+        "encapsulated_key": str, "signature": str,
+        "expires_at": datetime | null
+    }
+    Response: {"status": "sent"}
 
-    # Create a new message object and add it to the database
-    new_message = Message(
-        # Identifiers (ids & type)
-        sender_id=sender.id,
-        recipient_id=recipient.id,
-        type="text",  # Default type, can be extended later
-        # Status flags
-        sent=True,  # Mark as sent immediately
-        delivered=False,  # Initially not delivered
-        read=False,  # Initially not read
-        # Timestamps
-        sent_at=None,  # assigned by DB (func.now() on insert)
-        delivered_at=None,  # when delivered to recipient websocket
-        read_at=None,  # when read by recipient (fetched) TODO remove?
-        # Encryption metadata
-        ciphertext=req.ciphertext,
-        nonce=req.nonce,
-        encapsulated_key=req.encapsulated_key,
-        signature=req.signature,
-        expires_at=req.expires_at,  # Optional expiration time
-    )
-    db.add(new_message)  # Add the message to the session
+    :param req: Send message request with encrypted content and metadata.
+    :param db: Database session dependency injection.
+    :return: Message send confirmation response.
+    :raises HTTPException: 404 if sender/recipient not found, 500 for database errors.
+    """
+    # Validate required fields
+    if not req.sender or not req.recipient:
+        raise HTTPException(status_code=400, detail="Sender and recipient are required")
+    if (
+        not req.ciphertext
+        or not req.nonce
+        or not req.encapsulated_key
+        or not req.signature
+    ):
+        raise HTTPException(
+            status_code=400, detail="All cryptographic components are required"
+        )
 
     try:
-        # Commit the new message to the database
-        logger.debug(
-            f"[SERVER] Committing message from {req.sender} to {req.recipient}"
-        )
-        db.commit()
-    except Exception as e:
-        logger.error(
-            f"[SERVER] Error sending message from {req.sender} to {req.recipient}: {e}"
-        )
-        # db.rollback() # TODO review if rollback on error is needed
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-    # Notify the recipient via WebSocket if they are connected that a new message has arrived
-    ws = connected_clients.get(recipient.id)
-    if ws:
-        try:
-            logger.debug(f"[WebSocket] Notifying {req.recipient} of new message")
-            await ws.send_text("new_message")
-        except Exception as e:
-            logger.error(f"[WebSocket] Failed to notify {req.recipient}: {e}")
-    else:
-        logger.warning(
-            f"[WebSocket] No active WebSocket for {req.recipient}, skipping notification"
-        )
-
-    logger.info(f"[SERVER] Message sent from {req.sender} to {req.recipient}")
-    return SendResponse(status="sent")
-
-
-@router.get("/inbox/{username}", response_model=list[MessageResponse])
-def get_inbox(username: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter_by(username=username).first()
-    if not user:
-        logger.error(f"[SERVER] User '{username}' not found.")
-        raise HTTPException(status_code=404, detail="User not found")
-
-    logger.info(f"[SERVER] Fetching inbox for user: {username}")
-
-    # Fetch all messages for the user (order doesn't matter here)
-    messages = (
-        db.query(Message).filter_by(recipient_id=user.id, delivered=False)
-    ).all()  # Only fetch undelivered messages
-    if not messages:
-        logger.info(f"[SERVER] No messages found for user: {username}")
-        return []
-
-    logger.debug(f"[SERVER] Found {len(messages)} messages for user: {username}")
-
-    # Fill response with message details to be returned and decrypted by client
-    response = []
-    for msg in messages:
-        # Change the message's delivered status to True
-        msg.delivered = True
-        # TODO fix timestamps
-        # msg.delivered_at = datetime.now(timezone.utc)  # Set delivered timestamp
-
-        # Ensure the message has a sender_id
-        if not msg.sender_id:
-            logger.error(f"[SERVER] Message {msg.id} has no sender_id.")
-            continue
-
-        # Resolve the sender's username from sender_id
-        sender = db.query(User).filter_by(id=msg.sender_id).first()
+        # Resolve sender from username
+        sender = db.query(User).filter_by(username=req.sender.strip()).first()
         if not sender:
-            logger.error(f"[SERVER] Sender with ID {msg.sender_id} not found.")
-            continue
+            logger.warning(f"[SERVER] Message from non-existent sender: {req.sender}")
+            raise HTTPException(status_code=404, detail="Sender not found")
 
-        # Append the message to the response
-        response.append(
-            MessageResponse(
-                sender=sender.username,  # client only uses username
-                ciphertext=msg.ciphertext,
-                nonce=msg.nonce,
-                encapsulated_key=msg.encapsulated_key,
-                signature=msg.signature,
-                sent_at=cast(datetime, msg.sent_at),
+        # Resolve recipient from username
+        recipient = db.query(User).filter_by(username=req.recipient.strip()).first()
+        if not recipient:
+            logger.warning(
+                f"[SERVER] Message to non-existent recipient: {req.recipient}"
             )
+            raise HTTPException(status_code=404, detail="Recipient not found")
+
+        logger.info(
+            f"[SERVER] Processing message from '{req.sender}' to '{req.recipient}'"
         )
 
-        # Delete the message from the database (mark as "dealt with")
-        db.delete(msg)  # Remove message from the session
-        # TODO delete to review
-    logger.info(f"[SERVER] Inbox for {username} fetched successfully.")
+        # Create encrypted message record
+        new_message = Message(
+            # User identifiers
+            sender_id=sender.id,
+            recipient_id=recipient.id,
+            type="text",  # Message type (extensible for future media types)
+            # Delivery status tracking
+            sent=True,  # Marked as sent immediately upon storage
+            delivered=False,  # Will be marked true when fetched by recipient
+            read=False,  # Currently unused, for future read receipts
+            # Timestamp tracking (sent_at auto-set by database trigger)
+            sent_at=None,  # Set automatically by database
+            delivered_at=None,  # Set when message fetched from inbox
+            read_at=None,  # Reserved for future read receipt feature
+            # Cryptographic components (base64-encoded strings)
+            ciphertext=req.ciphertext,  # AES-GCM encrypted message content
+            nonce=req.nonce,  # AES-GCM nonce (12 bytes)
+            encapsulated_key=req.encapsulated_key,  # KEM-encrypted shared secret
+            signature=req.signature,  # Digital signature for authenticity
+            expires_at=req.expires_at,  # Optional message expiration
+        )
 
-    try:
-        # Commit the deletion of messages
-        logger.debug(f"[SERVER] Clearing inbox for user {username}")
+        # Add message to database session
+        db.add(new_message)
+
+        # Commit message to database
         db.commit()
+
+        logger.debug(
+            f"[SERVER] Message stored from '{req.sender}' to '{req.recipient}'"
+        )
+
+        # Attempt real-time notification via WebSocket
+        recipient_ws = connected_clients.get(recipient.id)
+        if recipient_ws:
+            try:
+                logger.debug(f"[WebSocket] Notifying '{req.recipient}' of new message")
+                await recipient_ws.send_text("new_message")
+            except Exception as e:
+                # WebSocket notification failure doesn't fail the message send
+                logger.warning(f"[WebSocket] Failed to notify '{req.recipient}': {e}")
+        else:
+            logger.debug(f"[WebSocket] No active connection for '{req.recipient}'")
+
+        logger.info(
+            f"[SERVER] Message sent successfully from '{req.sender}' to '{req.recipient}'"
+        )
+        return SendResponse(status="sent")
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except SQLAlchemyError as e:
+        # Handle database-specific errors
+        db.rollback()
+        logger.error(f"[SERVER] Database error sending message: {e}")
+        raise HTTPException(status_code=500, detail="Database error storing message")
     except Exception as e:
-        # db.rollback()  # TODO review if rollback on error is needed
-        logger.error(f"[SERVER] Error clearing inbox for {username}: {e}")
+        # Handle unexpected errors
+        db.rollback()
+        logger.error(f"[SERVER] Unexpected error sending message: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-    # Return the sorted response by sent_at (oldest first)
-    return sorted(response, key=lambda x: x.sent_at or datetime.min)
+
+@router.get("/inbox/{username}", response_model=List[MessageResponse])
+def get_inbox(username: str, db: Session = Depends(get_db)) -> List[MessageResponse]:
+    """Retrieves and clears undelivered messages from user's inbox.
+
+    Fetches all pending encrypted messages for the user, marks them as delivered,
+    and removes them from the server. Messages are returned with sender information
+    and all cryptographic components needed for decryption.
+
+    Endpoint: GET /inbox/{username}
+    Response: [
+        {
+            "sender": str, "ciphertext": str, "nonce": str,
+            "encapsulated_key": str, "signature": str, "sent_at": datetime
+        }, ...
+    ]
+
+    :param username: Username whose inbox to retrieve and clear.
+    :param db: Database session dependency injection.
+    :return: List of encrypted messages with metadata (empty if no messages).
+    :raises HTTPException: 404 if user not found, 500 for database errors.
+    """
+    # Validate username parameter
+    if not username or not username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+
+    username = username.strip()
+
+    try:
+        # Verify user exists in database
+        user = db.query(User).filter_by(username=username).first()
+        if not user:
+            logger.warning(f"[SERVER] Inbox request for non-existent user: {username}")
+            raise HTTPException(status_code=404, detail="User not found")
+
+        logger.info(f"[SERVER] Fetching inbox for user: {username}")
+
+        # Fetch all undelivered messages for the user
+        messages = (
+            db.query(Message).filter_by(recipient_id=user.id, delivered=False).all()
+        )
+
+        if not messages:
+            logger.info(f"[SERVER] No pending messages for user: {username}")
+            return []
+
+        logger.debug(
+            f"[SERVER] Found {len(messages)} pending messages for user: {username}"
+        )
+
+        # Process each message for response
+        response: List[MessageResponse] = []
+        for msg in messages:
+            try:
+                # Validate message has sender information
+                if not msg.sender_id:
+                    logger.error(
+                        f"[SERVER] Message {msg.id} missing sender_id, skipping"
+                    )
+                    continue
+
+                # Resolve sender username from sender_id
+                sender = db.query(User).filter_by(id=msg.sender_id).first()
+                if not sender:
+                    logger.error(
+                        f"[SERVER] Message {msg.id} has invalid sender_id {msg.sender_id}, skipping"
+                    )
+                    continue
+
+                # Create message response with all cryptographic components
+                response.append(
+                    MessageResponse(
+                        sender=sender.username,  # Sender's username
+                        ciphertext=msg.ciphertext,  # Encrypted message content
+                        nonce=msg.nonce,  # AES-GCM nonce
+                        encapsulated_key=msg.encapsulated_key,  # KEM-encrypted shared secret
+                        signature=msg.signature,  # Digital signature
+                        sent_at=cast(datetime, msg.sent_at),  # Message timestamp
+                    )
+                )
+
+                # Mark message as delivered and remove from database
+                # This implements a "consume-on-read" pattern for security
+                db.delete(msg)
+
+            except Exception as e:
+                logger.error(f"[SERVER] Error processing message {msg.id}: {e}")
+                continue
+
+        # Commit all message deletions
+        db.commit()
+
+        logger.info(
+            f"[SERVER] Delivered {len(response)} messages to '{username}' and cleared inbox"
+        )
+
+        # Return messages sorted by timestamp (oldest first)
+        return sorted(
+            response,
+            key=lambda x: x.sent_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except SQLAlchemyError as e:
+        # Handle database-specific errors
+        db.rollback()
+        logger.error(f"[SERVER] Database error fetching inbox for '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Database error accessing inbox")
+    except Exception as e:
+        # Handle unexpected errors
+        db.rollback()
+        logger.error(f"[SERVER] Unexpected error fetching inbox for '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

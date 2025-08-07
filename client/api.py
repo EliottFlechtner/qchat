@@ -1,49 +1,93 @@
-import requests, sys
+import requests
+import sys
+from typing import List, Dict, Any
 
 from client.utils.helpers import b64e, b64d, API_URL
 
 
-def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> dict:
+def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> Dict[str, str]:
+    """Registers a new user with their post-quantum public keys on the server.
+
+    Sends KEM and signature public keys to the registration endpoint for storage.
+    The server will use these keys for encrypting messages to this user and verifying
+    messages from this user.
+
+    API Endpoint: POST /register
+    Request: {"username": str, "kem_pk": base64, "sig_pk": base64}
+    Response: {"status": "registered"}
+
+    :param username: Unique username for registration.
+    :param kem_pk: Kyber512 public key for message encryption (800 bytes).
+    :param sig_pk: Falcon-512 public key for signature verification (897 bytes).
+    :return: Server response with registration status.
+    :raises ValueError: If any parameter is empty.
+    :raises Exception: If registration fails (username taken, invalid keys, server error).
+    """
+    # Validate all required parameters
     if not username or not kem_pk or not sig_pk:
         raise ValueError("Username and public keys cannot be empty")
 
     print(f"[CLIENT] Registering user: {username}", file=sys.stderr)
 
-    # Register a new user with their public keys
-    req = requests.post(
-        f"{API_URL}/register",
-        json={
-            "username": username,
-            "kem_pk": b64e(kem_pk),
-            "sig_pk": b64e(sig_pk),
-        },
-    )
-
-    # Check if the registration was successful
-    if req.status_code != 200:
-        raise Exception(
-            f"Failed to register user: {req.json().get('detail', 'Unknown error')}"
+    try:
+        # Register user with base64-encoded public keys
+        req = requests.post(
+            f"{API_URL}/register",
+            json={
+                "username": username,
+                "kem_pk": b64e(kem_pk),  # Kyber512 public key for encryption
+                "sig_pk": b64e(sig_pk),  # Falcon-512 public key for signatures
+            },
         )
-    return req.json()  # {"status": "registered"}
+
+        # Check registration success
+        if req.status_code != 200:
+            error_detail = req.json().get("detail", "Unknown error")
+            raise Exception(f"Failed to register user: {error_detail}")
+
+        return req.json()  # {"status": "registered"}
+
+    except requests.RequestException as e:
+        raise Exception(f"Network error during registration: {e}")
 
 
 def get_public_key(username: str, field: str = "kem_pk") -> bytes:
+    """Retrieves a user's public key from the server for cryptographic operations.
+
+    Fetches either KEM public key (for encrypting messages to the user) or signature
+    public key (for verifying messages from the user) from the server's key database.
+
+    API Endpoint: GET /pubkey/{username}
+    Response: {"kem_pk": base64, "sig_pk": base64}
+
+    :param username: Username whose public key to retrieve.
+    :param field: Key type to retrieve ("kem_pk" for encryption, "sig_pk" for verification).
+    :return: Decoded public key bytes ready for cryptographic use.
+    :raises ValueError: If username is empty or field is invalid.
+    :raises Exception: If key retrieval fails (user not found, server error).
+    """
+    # Validate field parameter
     if field not in ["kem_pk", "sig_pk"]:
         raise ValueError("Invalid field, must be 'kem_pk' or 'sig_pk'")
     if not username:
         raise ValueError("Username cannot be empty")
 
-    print(f"[CLIENT] Fetching public key for user: {username}", file=sys.stderr)
+    print(f"[CLIENT] Fetching {field} for user: {username}", file=sys.stderr)
 
-    # Fetch the user's public key from the server
-    res = requests.get(f"{API_URL}/pubkey/{username}")
+    try:
+        # Fetch user's public keys from server
+        res = requests.get(f"{API_URL}/pubkey/{username}")
 
-    # Check if the server correctly returned the public key
-    if res.status_code != 200:
-        raise Exception(
-            f"Failed to fetch public key: {res.json().get('detail', 'Unknown error')}"
-        )
-    return b64d(res.json()[field])  # Return requested pk (decoded from base64)
+        # Check if key retrieval was successful
+        if res.status_code != 200:
+            error_detail = res.json().get("detail", "Unknown error")
+            raise Exception(f"Failed to fetch public key: {error_detail}")
+
+        # Return requested public key decoded from base64
+        return b64d(res.json()[field])
+
+    except requests.RequestException as e:
+        raise Exception(f"Network error fetching public key: {e}")
 
 
 def send_message(
@@ -53,9 +97,36 @@ def send_message(
     nonce: bytes,
     encap_key: bytes,
     signature: bytes,
-) -> dict:
+) -> Dict[str, str]:
+    """Sends an encrypted message with all cryptographic components to the server.
+
+    Transmits a complete encrypted message package including the AES-GCM ciphertext,
+    KEM-encapsulated key for the recipient, and digital signature for authenticity.
+
+    API Endpoint: POST /send
+    Request: {
+        "sender": str, "recipient": str,
+        "ciphertext": base64, "nonce": base64,
+        "encapsulated_key": base64, "signature": base64,
+        "expires_at": null  # TODO for future message expiration support
+    }
+    Response: {"status": "message stored"}
+
+    :param sender: Username of message sender.
+    :param recipient: Username of message recipient.
+    :param ciphertext: AES-GCM encrypted message content.
+    :param nonce: AES-GCM nonce for decryption (12 bytes).
+    :param encap_key: KEM-encapsulated shared secret for recipient.
+    :param signature: Falcon-512 signature over ciphertext for authenticity.
+    :return: Server response confirming message storage.
+    :raises ValueError: If any parameter is empty or has wrong type.
+    :raises Exception: If message sending fails (recipient not found, server error).
+    """
+    # Validate string parameters
     if not sender or not recipient:
         raise ValueError("Sender and recipient cannot be empty")
+
+    # Validate cryptographic components
     if not ciphertext or not nonce or not encap_key or not signature:
         raise ValueError("Message components cannot be empty")
     if (
@@ -68,48 +139,79 @@ def send_message(
 
     print(f"[CLIENT] Sending message from {sender} to {recipient}", file=sys.stderr)
 
-    # Send a message to the recipient
-    req = requests.post(
-        f"{API_URL}/send",
-        json={
-            # Identifiers (ids & type)
-            "sender": sender,
-            "recipient": recipient,
-            # Encryption metadata
-            "ciphertext": b64e(ciphertext),
-            "nonce": b64e(nonce),
-            "encapsulated_key": b64e(encap_key),
-            "signature": b64e(signature),
-            "expires_at": None,  # Optional, can be set to None for no expiration
-        },
-    )
-
-    # Check if the message was sent successfully
-    if req.status_code != 200:
-        raise Exception(
-            f"Failed to send message: {req.json().get('detail', 'Unknown error')}"
+    try:
+        # Send encrypted message with all cryptographic components
+        req = requests.post(
+            f"{API_URL}/send",
+            json={
+                # Message identifiers
+                "sender": sender,
+                "recipient": recipient,
+                # Cryptographic components (base64-encoded for JSON)
+                "ciphertext": b64e(ciphertext),  # AES-GCM encrypted content
+                "nonce": b64e(nonce),  # AES-GCM nonce (12 bytes)
+                "encapsulated_key": b64e(encap_key),  # KEM-encrypted shared secret
+                "signature": b64e(signature),  # Digital signature for auth
+                "expires_at": None,  # No message expiration
+            },
         )
-    return req.json()  # {"status": "message stored"}
+
+        # Check if message was stored successfully
+        if req.status_code != 200:
+            error_detail = req.json().get("detail", "Unknown error")
+            raise Exception(f"Failed to send message: {error_detail}")
+
+        return req.json()  # {"status": "message stored"}
+
+    except requests.RequestException as e:
+        raise Exception(f"Network error sending message: {e}")
 
 
-def get_inbox(username: str) -> list[dict]:
+def get_inbox(username: str) -> List[Dict[str, Any]]:
+    """Retrieves all encrypted messages from the user's server inbox.
+
+    Fetches a list of encrypted messages waiting for the user. Each message contains
+    all cryptographic components needed for decryption and verification.
+
+    API Endpoint: GET /inbox/{username}
+    Response: [
+        {
+            "sender": str, "ciphertext": base64, "nonce": base64,
+            "encapsulated_key": base64, "signature": base64
+        }, ...
+    ]
+
+    :param username: Username whose inbox to retrieve.
+    :return: List of encrypted message dictionaries (empty if no messages).
+    :raises ValueError: If username is empty.
+    """
+    # Validate username parameter
     if not username:
         raise ValueError("Username cannot be empty")
 
     print(f"[CLIENT] Fetching inbox for user: {username}", file=sys.stderr)
 
-    # Fetch the user's inbox messages
-    res = requests.get(f"{API_URL}/inbox/{username}")
+    try:
+        # Fetch user's inbox messages from server
+        res = requests.get(f"{API_URL}/inbox/{username}")
 
-    if res.status_code != 200:
-        print(
-            f"[CLIENT] Failed to fetch inbox: {res.json().get('detail', 'Unknown error')}",
-            file=sys.stderr,
-        )
-        return []
+        # Handle unsuccessful requests
+        if res.status_code != 200:
+            error_detail = res.json().get("detail", "Unknown error")
+            print(f"[CLIENT] Failed to fetch inbox: {error_detail}", file=sys.stderr)
+            return []
 
-    # Return the inbox messages as a list of dictionaries
-    if not res.json():
-        print("[CLIENT] Inbox is empty", file=sys.stderr)
+        # Handle empty inbox
+        inbox_data = res.json()
+        if not inbox_data:
+            print("[CLIENT] Inbox is empty", file=sys.stderr)
+            return []
+
+        return inbox_data  # List of encrypted message dictionaries
+
+    except requests.RequestException as e:
+        print(f"[CLIENT] Network error fetching inbox: {e}", file=sys.stderr)
         return []
-    return res.json()  # List of messages as dicts, not empty, not decrypted
+    except Exception as e:
+        print(f"[CLIENT] Unexpected error fetching inbox: {e}", file=sys.stderr)
+        return []
