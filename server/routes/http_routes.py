@@ -8,11 +8,9 @@ from typing import List, cast
 from server.utils.logger import logger
 from server.db.database import get_db
 from server.services import UserService, MessageService, websocket_service
-from shared.requests_models import (
+from shared import (
     RegisterRequest,
     SendRequest,
-)
-from shared.response_models import (
     RegisterResponse,
     GetPublicKeysResponse,
     SendResponse,
