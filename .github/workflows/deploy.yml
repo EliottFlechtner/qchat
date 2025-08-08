@@ -44,7 +44,7 @@ jobs:
   dockerize-and-deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/github_cicd'
 
     steps:
     - uses: actions/checkout@v4
