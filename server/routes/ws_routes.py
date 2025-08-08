@@ -2,12 +2,10 @@ import uuid
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime, timezone
 
 from server.utils.logger import logger
 from server.db.database import get_db
-from server.db.database_models import User, Message
-from server.routes.http_routes import connected_clients
+from server.services import UserService, websocket_service
 
 # Router is prefixed with "/ws" to indicate WebSocket routes
 # on the main app, NO NEED to prefix here
@@ -57,9 +55,12 @@ async def websocket_endpoint(
         await websocket.accept()
         logger.info(f"[WebSocket] Connection accepted for '{username}'")
 
+        # Initialize user service
+        user_service = UserService(db)
+
         # Resolve username to user ID from database
         try:
-            user = db.query(User).filter_by(username=username).first()
+            user = user_service.get_user_by_username(username)
             if not user:
                 logger.warning(
                     f"[WebSocket] Connection rejected: user '{username}' not found"
@@ -82,7 +83,7 @@ async def websocket_endpoint(
             return
 
         # Check for existing connection and handle reconnection
-        existing_connection = connected_clients.get(user_id)
+        existing_connection = websocket_service.get_client(user_id)
         if existing_connection:
             try:
                 # Close existing connection gracefully
@@ -95,8 +96,8 @@ async def websocket_endpoint(
                     f"[WebSocket] Error closing existing connection for '{username}': {e}"
                 )
 
-        # Store the new WebSocket connection in the global registry
-        connected_clients[user_id] = websocket
+        # Store the new WebSocket connection in the service
+        websocket_service.add_client(user_id, websocket)
         logger.info(
             f"[WebSocket] User '{username}' (ID: {user_id}) connected successfully"
         )
@@ -135,94 +136,14 @@ async def websocket_endpoint(
 
     finally:
         # Clean up connection registry on disconnect
-        if user_id and user_id in connected_clients:
-            removed_connection = connected_clients.pop(user_id, None)
-            if removed_connection:
-                logger.info(
-                    f"[WebSocket] Cleaned up connection for '{username}' (ID: {user_id})"
-                )
-            else:
-                logger.debug(
-                    f"[WebSocket] No connection found to clean up for '{username}'"
-                )
+        if user_id and websocket_service.is_user_connected(user_id):
+            websocket_service.remove_client(user_id)
+            logger.info(
+                f"[WebSocket] Cleaned up connection for '{username}' (ID: {user_id})"
+            )
 
         logger.debug(f"[WebSocket] Connection handler finished for '{username}'")
 
 
-# async def notify_user(user_id: uuid.UUID, message: str) -> bool:
-#     """Sends a notification message to a connected user via WebSocket.
-
-#     Utility function to send real-time notifications to users. Used primarily
-#     for notifying users about new message arrivals. Handles connection errors
-#     gracefully and removes stale connections.
-
-#     :param user_id: Database ID of the user to notify.
-#     :param message: Notification message to send (typically "new_message").
-#     :return: True if notification sent successfully, False otherwise.
-#     """
-#     websocket = connected_clients.get(user_id)
-#     if not websocket:
-#         logger.debug(f"[WebSocket] No active connection for user ID {user_id}")
-#         return False
-
-#     try:
-#         await websocket.send_text(message)
-#         logger.debug(f"[WebSocket] Notification sent to user ID {user_id}: {message}")
-#         return True
-
-#     except Exception as e:
-#         # Connection is stale or broken, remove it from registry
-#         logger.warning(
-#             f"[WebSocket] Failed to notify user ID {user_id}, removing connection: {e}"
-#         )
-#         connected_clients.pop(user_id, None)
-#         return False
-
-
-# def get_connected_users_count() -> int:
-#     """Returns the number of currently connected WebSocket clients.
-
-#     Utility function for monitoring and debugging purposes.
-
-#     :return: Number of active WebSocket connections.
-#     """
-#     return len(connected_clients)
-
-
-# def is_user_connected(user_id: int) -> bool:
-#     """Checks if a specific user has an active WebSocket connection.
-
-#     :param user_id: Database ID of the user to check.
-#     :return: True if user is connected, False otherwise.
-#     """
-#     return user_id in connected_clients
-
-
-# async def disconnect_user(
-#     user_id: uuid.UUID, code: int = 1000, reason: str = "Server disconnect"
-# ) -> bool:
-#     """Forcefully disconnects a user's WebSocket connection.
-
-#     Administrative function for server-side connection management.
-
-#     :param user_id: Database ID of the user to disconnect.
-#     :param code: WebSocket close code (default: 1000 for normal closure).
-#     :param reason: Human-readable reason for disconnection.
-#     :return: True if user was connected and disconnected, False if not connected.
-#     """
-#     websocket = connected_clients.get(user_id)
-#     if not websocket:
-#         logger.debug(f"[WebSocket] User ID {user_id} not connected, cannot disconnect")
-#         return False
-
-#     try:
-#         await websocket.close(code=code, reason=reason)
-#         connected_clients.pop(user_id, None)
-#         logger.info(f"[WebSocket] Forcefully disconnected user ID {user_id}: {reason}")
-#         return True
-
-#     except Exception as e:
-#         logger.warning(f"[WebSocket] Error disconnecting user ID {user_id}: {e}")
-#         # Remove from registry even if close failed
-#         connected_clients.pop(user_id, None)
-#         return True
+# The WebSocket utility functions are now handled by the WebSocketService
+# in server.services.websocket_service for better separation of concerns.
