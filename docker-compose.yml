@@ -36,8 +36,8 @@ services:
     mem_limit: 256m
     cpus: 0.5
     # TODO remove host port exposure security?
-    # ports:
-    #   - "5432:5432"
+    ports:
+      - "5432:5432"
 
   nginx:
     image: nginx:alpine
@@ -53,6 +53,22 @@ services:
     restart: on-failure
     mem_limit: 128m
     cpus: 0.25
+
+  tests:
+    build: .
+    command: ./run_tests.sh
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    profiles:
+      - test
 
 volumes:
   postgres_data:
