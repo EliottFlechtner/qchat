@@ -4,8 +4,8 @@ import asyncio
 
 from server.db.database import engine, Base
 from server.db.database_models import User, Message  # Safety import for Base
-from server.routes.http_routes import router
-from server.routes.ws_routes import ws_router as ws_router
+from server.routes.http_routes import http_router
+from server.routes.ws_routes import ws_router
 from server.utils.logger import logger
 from server.config.settings import settings
 
@@ -37,9 +37,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="QChat - Post-Quantum Chat Server",
     description="A secure chat server using post-quantum cryptography",
-    version="1.0.0",
+    version="0.0.1",
     debug=settings.debug,
     lifespan=lifespan,
 )
-app.include_router(router)
+app.include_router(http_router)
 app.include_router(ws_router, prefix="/ws", tags=["WebSocket"])
