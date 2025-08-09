@@ -25,10 +25,22 @@ export function ConversationList() {
       })),
     [otherUserByConv]
   );
-  const all = [
-    ...conversations.map((c) => ({ id: c.id, other_user: c.other_user })),
-    ...syntheticConvs,
-  ];
+
+  // Deduplicate conversations - server conversations take precedence over synthetic ones
+  const all = useMemo(() => {
+    const serverConvs = conversations.map((c) => ({
+      id: c.id,
+      other_user: c.other_user,
+    }));
+    const serverConvIds = new Set(serverConvs.map((c) => c.id));
+
+    // Only include synthetic conversations that don't already exist as server conversations
+    const uniqueSyntheticConvs = syntheticConvs.filter(
+      (c) => !serverConvIds.has(c.id)
+    );
+
+    return [...serverConvs, ...uniqueSyntheticConvs];
+  }, [conversations, syntheticConvs]);
 
   return (
     <div className="h-full flex flex-col">
