@@ -34,6 +34,9 @@ class Message(Base):
 
     # Identifiers (ids & type)
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False
+    )
     sender_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
     )
@@ -43,9 +46,7 @@ class Message(Base):
     type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
 
     # Status flags
-    sent: Mapped[bool] = mapped_column(Boolean, default=False)
     delivered: Mapped[bool] = mapped_column(Boolean, default=False)
-    read: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Timestamps
     sent_at: Mapped[DateTime] = mapped_column(
@@ -54,7 +55,6 @@ class Message(Base):
     delivered_at: Mapped[DateTime] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    read_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Encryption metadata
     ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
@@ -67,6 +67,30 @@ class Message(Base):
 
     def __repr__(self):
         return (
-            f"<Message(id={self.id}, sender_id={self.sender_id}, recipient_id={self.recipient_id}, "
-            f"sent={self.sent}, delivered={self.delivered}, read={self.read})>"
+            f"<Message(id={self.id}, conversation_id={self.conversation_id}, sender_id={self.sender_id}, recipient_id={self.recipient_id}",
+            f"delivered={self.delivered})>",
         )
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    # Identifiers
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user1_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    user2_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+
+    # Timestamps
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self):
+        return f"<Conversation(id={self.id}, user1_id={self.user1_id}, user2_id={self.user2_id})>"
