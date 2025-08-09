@@ -13,6 +13,11 @@ from .login import (
     login_or_register,
 )
 from .send import send_encrypted_message
+from .conversation import (
+    fetch_user_conversations,
+    fetch_conversation_messages,
+    get_or_create_conversation_id,
+)
 
 __all__ = [
     # Inbox services
@@ -25,4 +30,8 @@ __all__ = [
     "login_or_register",
     # Message sending services
     "send_encrypted_message",
+    # Conversation services
+    "fetch_user_conversations",
+    "fetch_conversation_messages",
+    "get_or_create_conversation_id",
 ]
