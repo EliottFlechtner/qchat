@@ -215,3 +215,130 @@ def get_inbox(username: str) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"[CLIENT] Unexpected error fetching inbox: {e}", file=sys.stderr)
         return []
+
+
+def get_conversations(username: str) -> List[Dict[str, Any]]:
+    """Retrieves all conversations for a user.
+
+    Fetches a list of conversations the user is participating in, along with
+    the other participant's username and conversation metadata.
+
+    API Endpoint: GET /conversations/{username}
+    Response: {
+        "conversations": [
+            {
+                "id": str, "other_user": str,
+                "created_at": datetime, "updated_at": datetime
+            }, ...
+        ]
+    }
+
+    :param username: Username whose conversations to retrieve.
+    :return: List of conversation dictionaries (empty if no conversations).
+    :raises ValueError: If username is empty.
+    """
+    # Validate username parameter
+    if not username:
+        raise ValueError("Username cannot be empty")
+
+    print(f"[CLIENT] Fetching conversations for user: {username}", file=sys.stderr)
+
+    try:
+        # Fetch user's conversations from server
+        res = requests.get(f"{get_api_url()}/conversations/{username}")
+
+        # Handle unsuccessful requests
+        if res.status_code != 200:
+            error_detail = res.json().get("detail", "Unknown error")
+            print(
+                f"[CLIENT] Failed to fetch conversations: {error_detail}",
+                file=sys.stderr,
+            )
+            return []
+
+        # Handle empty conversations
+        conversations_data = res.json()
+        if not conversations_data or not conversations_data.get("conversations"):
+            print("[CLIENT] No conversations found", file=sys.stderr)
+            return []
+
+        return conversations_data["conversations"]  # List of conversation dictionaries
+
+    except requests.RequestException as e:
+        print(f"[CLIENT] Network error fetching conversations: {e}", file=sys.stderr)
+        return []
+    except Exception as e:
+        print(f"[CLIENT] Unexpected error fetching conversations: {e}", file=sys.stderr)
+        return []
+
+
+def get_conversation_messages(
+    username: str, conversation_id: str
+) -> List[Dict[str, Any]]:
+    """Retrieves all messages in a specific conversation.
+
+    Fetches all messages in the conversation that the user is authorized to access.
+    Messages are returned in chronological order (oldest first).
+
+    API Endpoint: GET /conversations/{username}/{conversation_id}/messages
+    Response: {
+        "conversation_id": str,
+        "messages": [
+            {
+                "sender": str, "ciphertext": str, "nonce": str,
+                "encapsulated_key": str, "signature": str, "sent_at": datetime
+            }, ...
+        ]
+    }
+
+    :param username: Username requesting the messages.
+    :param conversation_id: UUID of the conversation as string.
+    :return: List of message dictionaries (empty if no messages).
+    :raises ValueError: If username or conversation_id is empty.
+    """
+    # Validate parameters
+    if not username:
+        raise ValueError("Username cannot be empty")
+    if not conversation_id:
+        raise ValueError("Conversation ID cannot be empty")
+
+    print(
+        f"[CLIENT] Fetching messages for conversation {conversation_id} for user: {username}",
+        file=sys.stderr,
+    )
+
+    try:
+        # Fetch conversation messages from server
+        res = requests.get(
+            f"{get_api_url()}/conversations/{username}/{conversation_id}/messages"
+        )
+
+        # Handle unsuccessful requests
+        if res.status_code != 200:
+            error_detail = res.json().get("detail", "Unknown error")
+            print(
+                f"[CLIENT] Failed to fetch conversation messages: {error_detail}",
+                file=sys.stderr,
+            )
+            return []
+
+        # Handle empty messages
+        messages_data = res.json()
+        if not messages_data or not messages_data.get("messages"):
+            print("[CLIENT] No messages found in conversation", file=sys.stderr)
+            return []
+
+        return messages_data["messages"]  # List of message dictionaries
+
+    except requests.RequestException as e:
+        print(
+            f"[CLIENT] Network error fetching conversation messages: {e}",
+            file=sys.stderr,
+        )
+        return []
+    except Exception as e:
+        print(
+            f"[CLIENT] Unexpected error fetching conversation messages: {e}",
+            file=sys.stderr,
+        )
+        return []
