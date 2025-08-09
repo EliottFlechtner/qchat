@@ -3,10 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 from typing import List, cast
+import uuid
 
 from server.utils.logger import logger
 from server.db.database import get_db
-from server.services import UserService, MessageService, websocket_service
+from server.services import (
+    UserService,
+    MessageService,
+    ConversationService,
+    websocket_service,
+)
 from shared import (
     RegisterRequest,
     SendRequest,
@@ -14,13 +20,16 @@ from shared import (
     GetPublicKeysResponse,
     SendResponse,
     MessageResponse,
+    ConversationListResponse,
+    ConversationResponse,
+    ConversationMessagesResponse,
 )
 
 # Create FastAPI router for all HTTP endpoints
-router = APIRouter()
+http_router = APIRouter()
 
 
-@router.post("/register", response_model=RegisterResponse)
+@http_router.post("/register", response_model=RegisterResponse)
 def register_user(
     req: RegisterRequest, db: Session = Depends(get_db)
 ) -> RegisterResponse:
@@ -54,6 +63,10 @@ def register_user(
 
     try:
         success, status = user_service.create_user(username, req.kem_pk, req.sig_pk)
+        if success:
+            logger.info(f"[SERVER] User '{username}' registered successfully")
+        else:
+            logger.info(f"[SERVER] User '{username}' already registered")
         return RegisterResponse(status=status)
 
     except SQLAlchemyError as e:
@@ -66,7 +79,7 @@ def register_user(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/pubkey/{username}", response_model=GetPublicKeysResponse)
+@http_router.get("/pubkey/{username}", response_model=GetPublicKeysResponse)
 def get_public_key(
     username: str, db: Session = Depends(get_db)
 ) -> GetPublicKeysResponse:
@@ -120,7 +133,7 @@ def get_public_key(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.post("/send", response_model=SendResponse)
+@http_router.post("/send", response_model=SendResponse)
 async def send_message(req: SendRequest, db: Session = Depends(get_db)) -> SendResponse:
     """Stores an encrypted message and notifies the recipient via WebSocket.
 
@@ -220,7 +233,7 @@ async def send_message(req: SendRequest, db: Session = Depends(get_db)) -> SendR
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/inbox/{username}", response_model=List[MessageResponse])
+@http_router.get("/inbox/{username}", response_model=List[MessageResponse])
 def get_inbox(username: str, db: Session = Depends(get_db)) -> List[MessageResponse]:
     """Retrieves and clears undelivered messages from user's inbox.
 
@@ -329,4 +342,217 @@ def get_inbox(username: str, db: Session = Depends(get_db)) -> List[MessageRespo
     except Exception as e:
         # Handle unexpected errors
         logger.error(f"[SERVER] Unexpected error fetching inbox for '{username}': {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@http_router.get("/conversations/{username}", response_model=ConversationListResponse)
+def get_user_conversations(
+    username: str, db: Session = Depends(get_db)
+) -> ConversationListResponse:
+    """Retrieves all conversations for a user.
+
+    Returns a list of conversations the user is participating in, along with
+    the other participant's username and conversation metadata.
+
+    Endpoint: GET /conversations/{username}
+    Response: {
+        "conversations": [
+            {
+                "id": str, "other_user": str,
+                "created_at": datetime, "updated_at": datetime
+            }, ...
+        ]
+    }
+
+    :param username: Username whose conversations to retrieve.
+    :param db: Database session dependency injection.
+    :return: List of user's conversations.
+    :raises HTTPException: 404 if user not found, 500 for database errors.
+    """
+    # Validate username parameter
+    if not username or not username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+
+    username = username.strip()
+
+    # Initialize services
+    user_service = UserService(db)
+    conversation_service = ConversationService(db)
+
+    try:
+        # Verify user exists
+        user = user_service.get_user_by_username(username)
+        if not user:
+            logger.warning(
+                f"[SERVER] Conversations request for non-existent user: {username}"
+            )
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Get all conversations for the user
+        conversations = conversation_service.get_user_conversations(user.id)
+
+        # Build response with other user information
+        conversation_responses = []
+        for conv in conversations:
+            try:
+                # Get the other user in the conversation
+                other_user_id = conversation_service.get_other_user_in_conversation(
+                    user.id, conv
+                )
+                other_user = user_service.get_user_by_id(other_user_id)
+
+                if not other_user:
+                    logger.error(
+                        f"[SERVER] Other user not found in conversation {conv.id}"
+                    )
+                    continue
+
+                conversation_responses.append(
+                    ConversationResponse(
+                        id=str(conv.id),
+                        other_user=other_user.username,
+                        created_at=cast(datetime, conv.created_at),
+                        updated_at=cast(datetime, conv.updated_at),
+                    )
+                )
+            except Exception as e:
+                logger.error(f"[SERVER] Error processing conversation {conv.id}: {e}")
+                continue
+
+        logger.info(
+            f"[SERVER] Retrieved {len(conversation_responses)} conversations for '{username}'"
+        )
+        return ConversationListResponse(conversations=conversation_responses)
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(
+            f"[SERVER] Database error fetching conversations for '{username}': {e}"
+        )
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(
+            f"[SERVER] Unexpected error fetching conversations for '{username}': {e}"
+        )
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@http_router.get(
+    "/conversations/{username}/{conversation_id}/messages",
+    response_model=ConversationMessagesResponse,
+)
+def get_conversation_messages(
+    username: str, conversation_id: str, db: Session = Depends(get_db)
+) -> ConversationMessagesResponse:
+    """Retrieves all messages in a specific conversation.
+
+    Returns all messages in the conversation that the user is authorized to access.
+    Messages are returned in chronological order (oldest first).
+
+    Endpoint: GET /conversations/{username}/{conversation_id}/messages
+    Response: {
+        "conversation_id": str,
+        "messages": [
+            {
+                "sender": str, "ciphertext": str, "nonce": str,
+                "encapsulated_key": str, "signature": str, "sent_at": datetime
+            }, ...
+        ]
+    }
+
+    :param username: Username requesting the messages.
+    :param conversation_id: UUID of the conversation as string.
+    :param db: Database session dependency injection.
+    :return: Messages in the conversation.
+    :raises HTTPException: 400 for invalid UUID, 404 if user/conversation not found, 403 if unauthorized, 500 for database errors.
+    """
+    # Validate username parameter
+    if not username or not username.strip():
+        raise HTTPException(status_code=400, detail="Username cannot be empty")
+
+    username = username.strip()
+
+    # Validate conversation_id format
+    try:
+        conversation_uuid = uuid.UUID(conversation_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID format")
+
+    # Initialize services
+    user_service = UserService(db)
+    message_service = MessageService(db)
+    conversation_service = ConversationService(db)
+
+    try:
+        # Verify user exists
+        user = user_service.get_user_by_username(username)
+        if not user:
+            logger.warning(
+                f"[SERVER] Messages request for non-existent user: {username}"
+            )
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Verify conversation exists
+        conversation = conversation_service.get_conversation_by_id(conversation_uuid)
+        if not conversation:
+            logger.warning(
+                f"[SERVER] Messages request for non-existent conversation: {conversation_id}"
+            )
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        # Verify user is authorized to access this conversation
+        if not conversation_service.is_user_in_conversation(user.id, conversation_uuid):
+            logger.warning(
+                f"[SERVER] Unauthorized access to conversation {conversation_id} by user {username}"
+            )
+            raise HTTPException(
+                status_code=403, detail="Not authorized to access this conversation"
+            )
+
+        # Get all messages in the conversation
+        messages = message_service.get_conversation_messages(conversation_uuid, user.id)
+
+        # Build response
+        message_responses = []
+        for msg in messages:
+            try:
+                # Get sender information
+                sender = user_service.get_user_by_id(msg.sender_id)
+                if not sender:
+                    logger.error(f"[SERVER] Sender not found for message {msg.id}")
+                    continue
+
+                message_responses.append(
+                    MessageResponse(
+                        sender=sender.username,
+                        ciphertext=msg.ciphertext,
+                        nonce=msg.nonce,
+                        encapsulated_key=msg.encapsulated_key,
+                        signature=msg.signature,
+                        sent_at=cast(datetime, msg.sent_at),
+                    )
+                )
+            except Exception as e:
+                logger.error(f"[SERVER] Error processing message {msg.id}: {e}")
+                continue
+
+        logger.info(
+            f"[SERVER] Retrieved {len(message_responses)} messages from conversation {conversation_id} for '{username}'"
+        )
+        return ConversationMessagesResponse(
+            conversation_id=conversation_id, messages=message_responses
+        )
+
+    except HTTPException:
+        raise
+    except SQLAlchemyError as e:
+        logger.error(
+            f"[SERVER] Database error fetching messages for conversation {conversation_id}: {e}"
+        )
+        raise HTTPException(status_code=500, detail="Database error")
+    except Exception as e:
+        logger.error(
+            f"[SERVER] Unexpected error fetching messages for conversation {conversation_id}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Internal server error")

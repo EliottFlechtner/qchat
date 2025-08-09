@@ -6,6 +6,9 @@ from .response_models import (
     GetPublicKeysResponse,
     SendResponse,
     MessageResponse,
+    ConversationResponse,
+    ConversationListResponse,
+    ConversationMessagesResponse,
 )
 
 __all__ = [
@@ -15,4 +18,7 @@ __all__ = [
     "GetPublicKeysResponse",
     "SendResponse",
     "MessageResponse",
+    "ConversationResponse",
+    "ConversationListResponse",
+    "ConversationMessagesResponse",
 ]
