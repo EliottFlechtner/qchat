@@ -3,7 +3,6 @@
 import uuid
 from typing import Optional
 from sqlalchemy.exc import SQLAlchemyError
-from datetime import datetime, timezone
 
 from .base import BaseService
 from server.db.database_models import User
@@ -29,13 +28,10 @@ class UserService(BaseService):
                 return True, "already_registered"
 
             # Create new user
-            current_time = datetime.now(timezone.utc)
             new_user = User(
                 username=username,
                 kem_pk=kem_pk,
                 sig_pk=sig_pk,
-                created_at=current_time,
-                updated_at=current_time,
             )
 
             self.db.add(new_user)

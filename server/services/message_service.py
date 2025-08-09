@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 
 from .base import BaseService
+from .conversation_service import ConversationService
 from server.db.database_models import Message, User
 from server.utils.logger import logger
 
@@ -35,6 +36,12 @@ class MessageService(BaseService):
         :return: UUID of the created message
         """
         try:
+            # Get or create conversation between sender and recipient
+            conversation_service = ConversationService(self.db)
+            conversation = conversation_service.get_or_create_conversation(
+                sender_id, recipient_id
+            )
+
             # Parse expires_at if provided
             parsed_expires_at = None
             if expires_at:
@@ -50,15 +57,13 @@ class MessageService(BaseService):
 
             # Create new message record
             new_message = Message(
+                conversation_id=conversation.id,
                 sender_id=sender_id,
                 recipient_id=recipient_id,
                 type="text",
-                sent=True,
                 delivered=False,
-                read=False,
                 sent_at=None,  # Set by database trigger
                 delivered_at=None,
-                read_at=None,
                 ciphertext=ciphertext,
                 nonce=nonce,
                 encapsulated_key=encapsulated_key,
@@ -70,7 +75,8 @@ class MessageService(BaseService):
             self.db.commit()
 
             logger.info(
-                f"[MESSAGE_SERVICE] Message stored from '{sender_id}' to '{recipient_id}'"
+                f"[MESSAGE_SERVICE] Message stored from '{sender_id}' to '{recipient_id}' "
+                f"in conversation '{conversation.id}'"
             )
             return new_message.id
 
@@ -121,7 +127,10 @@ class MessageService(BaseService):
             for msg in messages:
                 try:
                     # Delete message (consume-on-read pattern)
-                    self.db.delete(msg)
+                    # self.db.delete(msg)
+                    msg.delivered = True
+                    # msg.delivered_at = datetime.now(timezone.utc)
+                    self.db.add(msg)  # Update the message status
                     processed_count += 1
                 except Exception as e:
                     logger.error(
@@ -169,3 +178,44 @@ class MessageService(BaseService):
                 signature and signature.strip(),
             ]
         )
+
+    def get_conversation_messages(
+        self, conversation_id: uuid.UUID, user_id: uuid.UUID
+    ) -> List[Message]:
+        """Retrieve all messages in a conversation that the user is authorized to see.
+
+        :param conversation_id: UUID of the conversation
+        :param user_id: UUID of the requesting user (for authorization)
+        :return: List of Message objects in the conversation
+        """
+        try:
+            # Verify user is in the conversation
+            conversation_service = ConversationService(self.db)
+            if not conversation_service.is_user_in_conversation(
+                user_id, conversation_id
+            ):
+                logger.warning(
+                    f"[MESSAGE_SERVICE] User {user_id} not authorized for conversation {conversation_id}"
+                )
+                return []
+
+            messages = (
+                self.db.query(Message)
+                .filter_by(conversation_id=conversation_id)
+                .order_by(Message.sent_at.asc())
+                .all()
+            )
+
+            logger.debug(
+                f"[MESSAGE_SERVICE] Found {len(messages)} messages in conversation {conversation_id}"
+            )
+            return messages
+
+        except Exception as e:
+            logger.error(
+                f"[MESSAGE_SERVICE] Error retrieving conversation messages: {e}"
+            )
+            raise
+
+
+# TODO delivered_at, delivered to manage
