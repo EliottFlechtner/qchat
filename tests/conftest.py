@@ -42,3 +42,72 @@ def mock_message():
     message.signature = "signature_value"
     message.sent_at = "2025-08-08T12:00:00Z"
     return message
+
+
+@pytest.fixture
+def mock_client_settings():
+    """Mock client settings for testing."""
+    settings = Mock()
+    settings.server_host = "localhost"
+    settings.server_port = 8000
+    settings.use_https = False
+    settings.server_url = "http://localhost:8000"
+    settings.ws_url = "ws://localhost:8000/ws"
+    settings.kem_algorithm = "Kyber512"
+    settings.sig_algorithm = "Dilithium2"
+    return settings
+
+
+@pytest.fixture
+def sample_keypair():
+    """Sample cryptographic keypair for testing."""
+    return {
+        "kem": (b"kem_private_key", b"kem_public_key"),
+        "sig": (b"sig_private_key", b"sig_public_key"),
+    }
+
+
+@pytest.fixture
+def sample_message_data():
+    """Sample message data for testing."""
+    return {
+        "sender": "alice",
+        "recipient": "bob",
+        "plaintext": "Hello, Bob!",
+        "ciphertext": b"encrypted_message",
+        "nonce": b"random_nonce",
+        "encapsulated_key": b"encap_key",
+        "signature": b"message_signature",
+    }
+
+
+# Mark all tests in specific files with appropriate markers
+def pytest_collection_modifyitems(config, items):
+    """Automatically mark tests based on their file names and content."""
+    for item in items:
+        # Mark tests based on file names
+        if "test_client_api" in item.nodeid:
+            item.add_marker(pytest.mark.unit)
+        elif "test_client_services" in item.nodeid:
+            item.add_marker(pytest.mark.unit)
+        elif "test_client_crypto" in item.nodeid:
+            item.add_marker(pytest.mark.unit)
+        elif "test_client_utils" in item.nodeid:
+            item.add_marker(pytest.mark.unit)
+        elif "test_client_websocket" in item.nodeid:
+            item.add_marker(pytest.mark.asyncio)
+            item.add_marker(pytest.mark.integration)
+        elif "test_client_error_handling" in item.nodeid:
+            item.add_marker(pytest.mark.unit)
+        elif "test_conversation" in item.nodeid:
+            item.add_marker(pytest.mark.integration)
+        elif "test_services" in item.nodeid:
+            item.add_marker(pytest.mark.integration)
+
+        # Mark slow tests
+        if "performance" in item.nodeid or "load" in item.nodeid:
+            item.add_marker(pytest.mark.slow)
+
+        # Mark async tests
+        if "async" in item.name or "websocket" in item.name:
+            item.add_marker(pytest.mark.asyncio)
