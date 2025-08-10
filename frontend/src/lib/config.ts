@@ -1,4 +1,15 @@
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-export const WS_BASE_URL =
-  import.meta.env.VITE_WS_BASE_URL || "ws://localhost:8000/ws";
+export const API_BASE_URL: string =
+  (import.meta as any).env?.VITE_API_BASE_URL || "/api";
+
+// Build an absolute WS URL if not provided via env
+function computeDefaultWsUrl(): string {
+  if (typeof window !== "undefined" && window.location) {
+    const isSecure = window.location.protocol === "https:";
+    const scheme = isSecure ? "wss://" : "ws://";
+    return `${scheme}${window.location.host}/ws`;
+  }
+  return "ws://localhost:8000/ws";
+}
+
+export const WS_BASE_URL: string =
+  (import.meta as any).env?.VITE_WS_BASE_URL || computeDefaultWsUrl();
