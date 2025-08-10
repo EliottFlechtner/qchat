@@ -24,7 +24,14 @@ def register_user(username: str, kem_pk: bytes, sig_pk: bytes) -> Dict[str, str]
     :raises Exception: If registration fails (username taken, invalid keys, server error).
     """
     # Validate all required parameters
-    if not username or not kem_pk or not sig_pk:
+    if (
+        not isinstance(username, str)
+        or not isinstance(kem_pk, bytes)
+        or not isinstance(sig_pk, bytes)
+    ):
+        raise TypeError("Invalid input types: username must be str, keys must be bytes")
+
+    if not username or not username.strip() or not kem_pk or not sig_pk:
         raise ValueError("Username and public keys cannot be empty")
 
     print(f"[CLIENT] Registering user: {username}", file=sys.stderr)
