@@ -1,2 +1,3 @@
 # qchat
-c'est l'app chat quantique en fait
+
+all work still on dev for now
