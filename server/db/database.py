@@ -1,7 +1,5 @@
-import sys
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
-from sqlalchemy.exc import OperationalError
 
 from server.utils.logger import logger
 from server.config.settings import settings
@@ -13,17 +11,9 @@ logger.info(
     f"[DATABASE] Connecting to database at {settings.postgres_host}:{settings.postgres_port}"
 )
 
-
-# Check if the database is reachable
-try:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
-except OperationalError as e:
-    logger.error(f"[DATABASE] Could not connect to the database: {e}")
-    sys.exit(1)
-
-logger.info("[DATABASE] Database connection established successfully.")
+# Engine creation does not open a connection immediately. This avoids import-time
+# failures in environments where the database is not available (e.g. unit tests).
+engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
 # Create the SQLAlchemy engine and session
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)

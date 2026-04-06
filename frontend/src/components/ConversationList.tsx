@@ -13,9 +13,7 @@ export function ConversationList() {
 
   useEffect(() => {
     refreshConversations();
-  }, []);
-
-  if (!currentUser) return null;
+  }, [refreshConversations]);
 
   const syntheticConvs = useMemo(
     () =>
@@ -41,6 +39,8 @@ export function ConversationList() {
 
     return [...serverConvs, ...uniqueSyntheticConvs];
   }, [conversations, syntheticConvs]);
+
+  if (!currentUser) return null;
 
   return (
     <div className="h-full flex flex-col">

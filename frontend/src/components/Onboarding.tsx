@@ -14,8 +14,8 @@ export function Onboarding() {
     setError(undefined);
     try {
       await ensureOnboarded(username.trim());
-    } catch (err: any) {
-      setError(String(err?.message || err));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }

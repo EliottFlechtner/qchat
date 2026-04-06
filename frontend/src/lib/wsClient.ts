@@ -1,8 +1,8 @@
-import { WS_BASE_URL } from "./config";
+import {WS_BASE_URL} from './config';
 
 export type WsCallbacks = {
   onNotification: (text: string) => void;
-  onStatus?: (status: "connecting" | "open" | "closed" | "error") => void;
+  onStatus?: (status: 'connecting'|'open'|'closed'|'error') => void;
 };
 
 export class WebSocketClient {
@@ -30,33 +30,36 @@ export class WebSocketClient {
   }
 
   private connect() {
-    this.cb.onStatus?.("connecting");
+    this.cb.onStatus?.('connecting');
     const url = `${WS_BASE_URL}/${encodeURIComponent(this.username)}`;
     const ws = new WebSocket(url);
     this.ws = ws;
 
     ws.onopen = () => {
-      this.cb.onStatus?.("open");
+      this.cb.onStatus?.('open');
       this.retryMs = 1000;
       // keep alive
       this.keepAliveTimer = window.setInterval(() => {
         try {
-          ws.send("ping");
-        } catch {}
+          ws.send('ping');
+        } catch {
+          // Ignore transient send failures; reconnect logic is handled by
+          // onclose.
+        }
       }, 25000);
     };
 
     ws.onmessage = (ev) => {
-      const text = typeof ev.data === "string" ? ev.data : "";
+      const text = typeof ev.data === 'string' ? ev.data : '';
       if (text) this.cb.onNotification(text);
     };
 
     ws.onerror = () => {
-      this.cb.onStatus?.("error");
+      this.cb.onStatus?.('error');
     };
 
     ws.onclose = () => {
-      this.cb.onStatus?.("closed");
+      this.cb.onStatus?.('closed');
       if (this.keepAliveTimer) window.clearInterval(this.keepAliveTimer);
       if (this.stopped) return;
       // backoff

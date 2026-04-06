@@ -6,6 +6,10 @@ import sys
 import os
 import pytest
 from unittest.mock import Mock
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from server.db.database import Base
 
 # Add the project root to the Python path
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,6 +83,20 @@ def sample_message_data():
         "encapsulated_key": b"encap_key",
         "signature": b"message_signature",
     }
+
+
+@pytest.fixture
+def db_session():
+    """Provide an isolated in-memory database session for service tests."""
+    engine = create_engine("sqlite:///:memory:")
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    Base.metadata.create_all(bind=engine)
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        Base.metadata.drop_all(bind=engine)
 
 
 # Mark all tests in specific files with appropriate markers

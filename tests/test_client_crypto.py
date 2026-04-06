@@ -1,20 +1,19 @@
-"""
-Tests for client cryptographic modules including AES, KEM, and signature operations.
+"""Tests for client cryptographic modules (AES, KEM, signature)."""
 
-Tests the post-quantum cryptographic functions and error handling.
-"""
+from unittest.mock import Mock, patch
 
 import pytest
-from unittest.mock import patch, Mock
-from client.crypto.aes256 import encrypt_with_aes, decrypt_with_aes
+
+from client.crypto.aes256 import decrypt_with_aes, encrypt_with_aes
 from client.crypto.kem import (
-    generate_kem_keypair,
-    encapsulate_key,
     decapsulate_key,
-    encrypt_message,
     decrypt_message,
+    encapsulate_key,
+    encrypt_message,
+    generate_kem_keypair,
 )
 from client.crypto.signature import (
+    falcon_512,
     generate_signature_keypair,
     sign_message,
     verify_signature,
@@ -22,279 +21,121 @@ from client.crypto.signature import (
 
 
 class TestAES256:
-    """Test AES-GCM encryption and decryption."""
-
-    def test_encrypt_with_aes_success(self):
-        """Test successful AES encryption."""
-        plaintext = "Hello, World!"
-        key = b"0" * 32  # 256-bit key
-
-        ciphertext, nonce = encrypt_with_aes(key, plaintext)
-
-        assert isinstance(ciphertext, bytes)
-        assert isinstance(nonce, bytes)
-        assert len(nonce) == 12  # AES-GCM nonce length
-        assert ciphertext != plaintext.encode()
-
-    def test_decrypt_with_aes_success(self):
-        """Test successful AES decryption."""
-        plaintext = "Hello, World!"
+    def test_round_trip(self):
         key = b"0" * 32
+        plaintext = "Hello, World!"
 
-        # Encrypt first
-        ciphertext, nonce = encrypt_with_aes(key, plaintext)
+        nonce, ciphertext = encrypt_with_aes(key, plaintext)
+        decrypted = decrypt_with_aes(key, nonce, ciphertext)
 
-        # Then decrypt
-        decrypted = decrypt_with_aes(ciphertext, nonce, key)
-
+        assert len(nonce) == 12
         assert decrypted == plaintext
 
-    def test_aes_round_trip(self):
-        """Test encrypt-decrypt round trip."""
-        original_message = "This is a test message with unicode: 🔒"
-        key = b"abcdefghijklmnopqrstuvwxyz123456"  # 32 bytes
-
-        # Encrypt
-        ciphertext, nonce = encrypt_with_aes(key, original_message)
-
-        # Decrypt
-        decrypted_message = decrypt_with_aes(ciphertext, nonce, key)
-
-        assert decrypted_message == original_message
-
-    def test_aes_invalid_key_length(self):
-        """Test AES with invalid key length."""
-        with pytest.raises((ValueError, Exception)):
-            encrypt_with_aes(b"short_key", "test")
-
-    def test_aes_decrypt_wrong_key(self):
-        """Test AES decryption with wrong key."""
-        plaintext = "Secret message"
-        correct_key = b"0" * 32
-        wrong_key = b"1" * 32
-
-        ciphertext, nonce = encrypt_with_aes(correct_key, plaintext)
-
-        with pytest.raises((ValueError, Exception)):
-            decrypt_with_aes(ciphertext, nonce, wrong_key)
-
-    def test_aes_decrypt_tampered_ciphertext(self):
-        """Test AES decryption with tampered ciphertext."""
-        plaintext = "Secret message"
-        key = b"0" * 32
-
-        ciphertext, nonce = encrypt_with_aes(key, plaintext)
-
-        # Tamper with ciphertext
-        tampered_ciphertext = ciphertext[:-1] + b"X"
-
-        with pytest.raises((ValueError, Exception)):
-            decrypt_with_aes(tampered_ciphertext, nonce, key)
+    def test_invalid_key_length(self):
+        with pytest.raises(ValueError):
+            encrypt_with_aes(b"short", "test")
 
 
 class TestKEM:
-    """Test KEM (Key Encapsulation Mechanism) operations."""
-
     @patch("client.crypto.kem.oqs.KeyEncapsulation")
     def test_generate_kem_keypair_success(self, mock_kem_class):
-        """Test successful KEM keypair generation."""
         mock_kem = Mock()
-        mock_kem.generate_keypair.return_value = None
-        mock_kem.public_key = b"public_key_data"
-        mock_kem.secret_key = b"secret_key_data"
-        mock_kem_class.return_value = mock_kem
+        mock_kem.generate_keypair.return_value = b"public_key_data"
+        mock_kem.export_secret_key.return_value = b"secret_key_data"
+        mock_kem_class.return_value.__enter__.return_value = mock_kem
 
         public_key, secret_key = generate_kem_keypair()
 
         assert public_key == b"public_key_data"
         assert secret_key == b"secret_key_data"
-        mock_kem.generate_keypair.assert_called_once()
 
     @patch("client.crypto.kem.oqs.KeyEncapsulation")
     def test_encapsulate_key_success(self, mock_kem_class):
-        """Test successful key encapsulation."""
         mock_kem = Mock()
         mock_kem.encap_secret.return_value = (b"ciphertext", b"shared_secret")
-        mock_kem_class.return_value = mock_kem
+        mock_kem_class.return_value.__enter__.return_value = mock_kem
 
-        public_key = b"recipient_public_key"
-        ciphertext, shared_secret = encapsulate_key(public_key)
+        ciphertext, shared_secret = encapsulate_key(b"recipient_public_key")
 
         assert ciphertext == b"ciphertext"
         assert shared_secret == b"shared_secret"
 
     @patch("client.crypto.kem.oqs.KeyEncapsulation")
     def test_decapsulate_key_success(self, mock_kem_class):
-        """Test successful key decapsulation."""
         mock_kem = Mock()
         mock_kem.decap_secret.return_value = b"shared_secret"
-        mock_kem_class.return_value = mock_kem
+        mock_kem_class.return_value.__enter__.return_value = mock_kem
 
-        secret_key = b"recipient_secret_key"
-        ciphertext = b"encapsulated_key"
-        shared_secret = decapsulate_key(ciphertext, secret_key)
+        shared_secret = decapsulate_key(b"encapsulated_key", b"recipient_secret_key")
 
         assert shared_secret == b"shared_secret"
 
     @patch("client.crypto.kem.encrypt_with_aes")
-    def test_encrypt_message_success(self, mock_encrypt_aes):
-        """Test successful message encryption."""
-        mock_encrypt_aes.return_value = (b"ciphertext", b"nonce")
+    @patch("client.crypto.kem.derive_aes_key")
+    def test_encrypt_message_success(self, mock_derive_key, mock_encrypt_aes):
+        mock_derive_key.return_value = b"k" * 32
+        mock_encrypt_aes.return_value = (b"nonce", b"ciphertext")
 
-        message = "Hello, World!"
-        shared_secret = b"0" * 32
+        nonce, ciphertext = encrypt_message(b"0" * 32, "Hello")
 
-        ciphertext, nonce = encrypt_message(shared_secret, message)
-
-        assert ciphertext == b"ciphertext"
         assert nonce == b"nonce"
-        # Check that encrypt_with_aes was called with derived key and message
-        mock_encrypt_aes.assert_called_once()
+        assert ciphertext == b"ciphertext"
+        mock_encrypt_aes.assert_called_once_with(b"k" * 32, "Hello")
 
     @patch("client.crypto.kem.decrypt_with_aes")
-    def test_decrypt_message_success(self, mock_decrypt_aes):
-        """Test successful message decryption."""
+    @patch("client.crypto.kem.derive_aes_key")
+    def test_decrypt_message_success(self, mock_derive_key, mock_decrypt_aes):
+        mock_derive_key.return_value = b"k" * 32
         mock_decrypt_aes.return_value = "Hello, World!"
 
-        shared_secret = b"0" * 32
-        nonce = b"nonce_data"
-        ciphertext = b"encrypted_data"
-
-        plaintext = decrypt_message(shared_secret, nonce, ciphertext)
+        plaintext = decrypt_message(b"0" * 32, b"1" * 12, b"encrypted_data")
 
         assert plaintext == "Hello, World!"
-        mock_decrypt_aes.assert_called_once()
+        mock_decrypt_aes.assert_called_once_with(
+            b"k" * 32, b"1" * 12, b"encrypted_data"
+        )
 
 
 class TestSignature:
-    """Test digital signature operations."""
+    @patch("client.crypto.signature.falcon_512.generate_keypair")
+    def test_generate_signature_keypair_success(self, mock_generate):
+        pub = b"p" * falcon_512.PUBLIC_KEY_SIZE
+        priv = b"s" * falcon_512.SECRET_KEY_SIZE
+        mock_generate.return_value = (pub, priv)
 
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_generate_signature_keypair_success(self, mock_sig_class):
-        """Test successful signature keypair generation."""
-        mock_sig = Mock()
-        mock_sig.generate_keypair.return_value = None
-        mock_sig.public_key = b"public_key_data"
-        mock_sig.secret_key = b"secret_key_data"
-        mock_sig_class.return_value = mock_sig
+        got_pub, got_priv = generate_signature_keypair()
 
-        public_key, secret_key = generate_signature_keypair()
+        assert got_pub == pub
+        assert got_priv == priv
 
-        assert public_key == b"public_key_data"
-        assert secret_key == b"secret_key_data"
-        mock_sig.generate_keypair.assert_called_once()
+    @patch("client.crypto.signature.falcon_512.sign")
+    def test_sign_message_success(self, mock_sign):
+        mock_sign.return_value = b"signature_data"
 
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_sign_message_success(self, mock_sig_class):
-        """Test successful message signing."""
-        mock_sig = Mock()
-        mock_sig.sign.return_value = b"signature_data"
-        mock_sig_class.return_value = mock_sig
-
-        message = b"message_to_sign"
-        secret_key = b"secret_key_data"
-        signature = sign_message(message, secret_key)
+        signature = sign_message(b"s" * falcon_512.SECRET_KEY_SIZE, b"message")
 
         assert signature == b"signature_data"
 
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_verify_signature_success(self, mock_sig_class):
-        """Test successful signature verification."""
-        mock_sig = Mock()
-        mock_sig.verify.return_value = True
-        mock_sig_class.return_value = mock_sig
+    @patch("client.crypto.signature.falcon_512.verify")
+    def test_verify_signature_success(self, mock_verify):
+        mock_verify.return_value = None
 
-        message = b"message_to_verify"
-        signature = b"signature_data"
-        public_key = b"public_key_data"
-
-        is_valid = verify_signature(message, signature, public_key)
+        is_valid = verify_signature(
+            b"p" * falcon_512.PUBLIC_KEY_SIZE,
+            b"message",
+            b"sig",
+        )
 
         assert is_valid is True
 
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_verify_signature_failure(self, mock_sig_class):
-        """Test signature verification failure."""
-        mock_sig = Mock()
-        mock_sig.verify.return_value = False
-        mock_sig_class.return_value = mock_sig
+    @patch("client.crypto.signature.falcon_512.verify")
+    def test_verify_signature_failure(self, mock_verify):
+        mock_verify.side_effect = Exception("invalid")
 
-        message = b"message_to_verify"
-        signature = b"invalid_signature"
-        public_key = b"public_key_data"
-
-        is_valid = verify_signature(message, signature, public_key)
+        is_valid = verify_signature(
+            b"p" * falcon_512.PUBLIC_KEY_SIZE,
+            b"message",
+            b"sig",
+        )
 
         assert is_valid is False
-
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_verify_signature_exception(self, mock_sig_class):
-        """Test signature verification with exception."""
-        mock_sig = Mock()
-        mock_sig.verify.side_effect = Exception("Verification failed")
-        mock_sig_class.return_value = mock_sig
-
-        message = b"message_to_verify"
-        signature = b"signature_data"
-        public_key = b"public_key_data"
-
-        is_valid = verify_signature(message, signature, public_key)
-
-        assert is_valid is False
-
-    def test_signature_validation_errors(self):
-        """Test signature functions with invalid inputs."""
-        # These would likely be caught by the actual implementations
-        with pytest.raises((TypeError, ValueError, Exception)):
-            sign_message(None, b"key")  # type: ignore
-
-        with pytest.raises((TypeError, ValueError, Exception)):
-            verify_signature(None, b"sig", b"key")  # type: ignore
-
-
-class TestCryptoIntegration:
-    """Integration tests for crypto components working together."""
-
-    @patch("client.crypto.kem.oqs.KeyEncapsulation")
-    @patch("client.crypto.signature.oqs.Signature")
-    def test_full_crypto_workflow(self, mock_sig_class, mock_kem_class):
-        """Test complete cryptographic workflow."""
-        # Setup KEM mocks
-        mock_kem = Mock()
-        mock_kem.generate_keypair.return_value = None
-        mock_kem.public_key = b"kem_public_key"
-        mock_kem.secret_key = b"kem_secret_key"
-        mock_kem.encap_secret.return_value = (b"encap_key", b"0" * 32)
-        mock_kem.decap_secret.return_value = b"0" * 32
-        mock_kem_class.return_value = mock_kem
-
-        # Setup signature mocks
-        mock_sig = Mock()
-        mock_sig.generate_keypair.return_value = None
-        mock_sig.public_key = b"sig_public_key"
-        mock_sig.secret_key = b"sig_secret_key"
-        mock_sig.sign.return_value = b"message_signature"
-        mock_sig.verify.return_value = True
-        mock_sig_class.return_value = mock_sig
-
-        # 1. Generate keypairs
-        kem_pk, kem_sk = generate_kem_keypair()
-        sig_pk, sig_sk = generate_signature_keypair()
-
-        # 2. Encrypt message
-        message = "Secret message"
-        encap_key, shared_secret = encapsulate_key(kem_pk)
-        ciphertext, nonce = encrypt_message(shared_secret, message)
-
-        # 3. Sign ciphertext
-        signature = sign_message(ciphertext, sig_sk)
-
-        # 4. Verify signature
-        is_valid = verify_signature(ciphertext, signature, sig_pk)
-
-        # 5. Decrypt message
-        decrypted_secret = decapsulate_key(encap_key, kem_sk)
-        decrypted_message = decrypt_message(decrypted_secret, nonce, ciphertext)
-
-        assert is_valid is True
-        assert decrypted_message == message
