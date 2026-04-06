@@ -1,2 +1,11 @@
 pypqc/
 venv/
+liboqs-python/
+__pycache__/
+*.log
+*.env
+*.DS_Store
+*.pytest_cache/
+*.vscode/
+*.idea/
+*keys*

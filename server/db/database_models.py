@@ -1,0 +1,96 @@
+import uuid
+from sqlalchemy import ForeignKey, String, Text, Boolean, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from server.db.database import Base  # import the shared Base from database.py
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    # Identifiers
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    username: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    kem_pk: Mapped[str] = mapped_column(Text, nullable=False)
+    sig_pk: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self):
+        return f"<User(id={self.id}, username={self.username})>"
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    # Identifiers (ids & type)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=False
+    )
+    sender_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    recipient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    type: Mapped[str] = mapped_column(String, nullable=False)  # e.g, "text", "file"
+
+    # Status flags
+    delivered: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Timestamps
+    sent_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    delivered_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Encryption metadata
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    nonce: Mapped[str] = mapped_column(Text, nullable=False)
+    encapsulated_key: Mapped[str] = mapped_column(Text, nullable=False)
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
+    def __repr__(self):
+        return (
+            f"<Message(id={self.id}, conversation_id={self.conversation_id}, sender_id={self.sender_id}, recipient_id={self.recipient_id}",
+            f"delivered={self.delivered})>",
+        )
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    # Identifiers
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user1_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    user2_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+
+    # Timestamps
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[DateTime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    def __repr__(self):
+        return f"<Conversation(id={self.id}, user1_id={self.user1_id}, user2_id={self.user2_id})>"

@@ -1,0 +1,78 @@
+version: "3.9"
+
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"  # Exposed only for debugging; remove for prod
+    networks:
+      - frontend-net
+      - backend-net
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+    mem_limit: 256m
+    cpus: 0.5
+
+  db:
+    image: postgres:15
+    container_name: db
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d qchatdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: on-failure
+    mem_limit: 256m
+    cpus: 0.5
+    # TODO remove host port exposure security?
+    ports:
+      - "5432:5432"
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - frontend-net
+    restart: on-failure
+    mem_limit: 128m
+    cpus: 0.25
+
+  tests:
+    build: .
+    command: ./run_tests.sh
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: "no"
+    mem_limit: 256m
+    cpus: 0.5
+    profiles:
+      - test
+
+volumes:
+  postgres_data:
+
+networks:
+  frontend-net:
+  backend-net:
