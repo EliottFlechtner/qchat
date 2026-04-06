@@ -16,7 +16,7 @@ import type {
 import { ApiClient } from "../lib/apiClient";
 import { KeyStore } from "../lib/keyStore";
 import { WebSocketClient } from "../lib/wsClient";
-import { bytesToBase64 } from "../lib/base64";
+import { computeMessageId } from "../lib/messageId";
 import {
   generateKemKeypair,
   generateSigKeypair,
@@ -39,21 +39,11 @@ type AppContextState = {
 
 const AppContext = createContext<AppContextState | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAppState(): AppContextState {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error("AppContext missing");
   return ctx;
-}
-
-function computeMessageId(wire: InboxMessageWire): string {
-  // Deterministic id from fields
-  const concat = `${wire.sender}|${wire.nonce}|${wire.ciphertext}|${wire.signature}|${wire.encapsulated_key}|${wire.sent_at}`;
-  // Simple hash
-  let h = 0;
-  for (let i = 0; i < concat.length; i++) {
-    h = (h * 31 + concat.charCodeAt(i)) >>> 0;
-  }
-  return bytesToBase64(new TextEncoder().encode(String(h)));
 }
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {

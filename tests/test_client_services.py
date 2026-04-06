@@ -46,13 +46,18 @@ class TestSendEncryptedMessage:
         send_encrypted_message("alice", "bob", "Hello, Bob!")
 
         # Verify all calls were made
-        mock_get_local_keypair.assert_called_once_with("alice")
+        mock_get_local_keypair.assert_called_once_with("alice", field="sig")
         mock_get_public_key.assert_called_once_with("bob", field="kem_pk")
         mock_encapsulate_key.assert_called_once_with(b"recipient_kem_pk")
-        mock_encrypt_message.assert_called_once_with("Hello, Bob!", b"shared_secret")
-        mock_sign_message.assert_called_once_with(b"ciphertext", b"sig_sk")
+        mock_encrypt_message.assert_called_once_with(b"shared_secret", "Hello, Bob!")
+        mock_sign_message.assert_called_once_with(b"kem_sk", b"nonce")
         mock_send_message.assert_called_once_with(
-            "alice", "bob", b"ciphertext", b"nonce", b"encap_key", b"signature"
+            sender="alice",
+            recipient="bob",
+            ciphertext=b"nonce",
+            nonce=b"ciphertext",
+            encap_key=b"encap_key",
+            signature=b"signature",
         )
 
     def test_send_encrypted_message_validation_errors(self):
@@ -146,7 +151,7 @@ class TestFetchAndDecryptInbox:
 
         # Verify calls
         mock_get_inbox.assert_called_once_with("alice")
-        mock_get_local_keypair.assert_called_once_with("alice")
+        mock_get_local_keypair.assert_called_once_with("alice", field="kem")
 
     @patch("client.services.inbox.get_inbox")
     def test_fetch_and_decrypt_inbox_empty(self, mock_get_inbox):

@@ -20,7 +20,7 @@ A secure, end-to-end encrypted chat application built with post-quantum cryptogr
 - **Cryptography**: liboqs (Open Quantum Safe) library
 - **Reverse Proxy**: Nginx for production deployment
 
-## � Quick Start
+## Quick Start
 
 ### Prerequisites
 
