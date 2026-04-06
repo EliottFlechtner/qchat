@@ -1,5 +1,7 @@
 # QChat - Post-Quantum Secure Chat Application
 
+Development status: active work has historically happened on `dev`, while `main` tracks integrated merges.
+
 A secure, end-to-end encrypted chat application built with post-quantum cryptography using FastAPI, PostgreSQL, and the Open Quantum Safe (liboqs) library.
 
 ## 🔐 Features
